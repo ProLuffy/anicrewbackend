@@ -1,20 +1,40 @@
 {
-  "name": "anicrew-backend-final",
-  "version": "4.0.0",
+  "name": "anicrew-backend",
+  "version": "1.0.0",
+  "description": "Backend for AniCrew - Anime Hybrid Streaming & Automation System",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "worker": "node src/worker.js"
+    "dev": "nodemon src/server.js",
+    "worker:scraper": "node src/workers/scraper.worker.js",
+    "worker:download": "node src/workers/download.worker.js",
+    "worker:upload": "node src/workers/upload.worker.js",
+    "worker:subtitle": "node src/workers/subtitle.worker.js",
+    "worker:notify": "node src/workers/notify.worker.js"
   },
   "dependencies": {
-    "axios": "^1.6.0",
-    "bullmq": "^5.0.0",
+    "@google/generative-ai": "^0.1.3",
+    "axios": "^1.6.2",
+    "bullmq": "^4.12.0",
+    "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "fluent-ffmpeg": "^2.1.2",
-    "googleapis": "^128.0.0",
-    "ioredis": "^5.3.0",
-    "mongoose": "^8.0.0",
-    "playwright": "^1.40.0"
+    "googleapis": "^126.0.1",
+    "helmet": "^7.1.0",
+    "ioredis": "^5.3.2",
+    "mongoose": "^8.0.3",
+    "morgan": "^1.10.0",
+    "node-telegram-bot-api": "^0.64.0",
+    "playwright": "^1.40.1",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "winston": "^3.11.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }

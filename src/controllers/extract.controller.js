@@ -1,61 +1,34 @@
-const { Queue } = require('bullmq');
-const { connection } = require('../config/redis.config');
-const { QUEUES } = require('../config/constants');
-const Series = require('../models/Series.model');
 const Episode = require('../models/Episode.model');
-const hianimeService = require('../services/hianime.service');
+const { resolveStream } = require('../utils/streamResolver');
 
-const scraperQueue = new Queue(QUEUES.SCRAPER, { connection });
-
-exports.triggerScrape = async (req, res, next) => {
+exports.getStreamData = async (req, res) => {
   try {
-    const { animeName, hianimeId, season } = req.body;
-    const targetSeason = season || 1; 
+    const { episodeId } = req.query;
+    const lang = (req.query.lang || 'japanese').toLowerCase();
+    const type = (req.query.type || 'sub').toLowerCase();
 
-    console.log(`Extraction Request: ${animeName} (Season ${targetSeason})`);
+    if (!episodeId) return res.status(400).json({ message: "Missing episodeId" });
 
-    const episodes = await hianimeService.getEpisodes(hianimeId);
+    const episode = await Episode.findById(episodeId);
+    if (!episode) return res.status(404).json({ message: "Episode not found" });
 
-    if (!episodes || !Array.isArray(episodes)) {
-      return res.status(500).json({ message: "Failed to fetch episode list" });
-    }
+    // 🧠 Execute Decision Engine
+    const streamData = resolveStream(episode, lang, type);
 
-    let series = await Series.findOneAndUpdate(
-      { hianimeId },
-      { title: animeName, totalEpisodes: episodes.length },
-      { upsert: true, new: true }
-    );
-
-    let count = 0;
-    for (const ep of episodes) {
-        const epNum = ep.episodeNumber; 
-        const epId = ep.id; 
-
-        const newEp = await Episode.findOneAndUpdate(
-            { seriesId: series._id, number: epNum },
-            { hianimeEpisodeId: epId, number: epNum },
-            { upsert: true, new: true }
-        );
-
-        if (!newEp.hasAudio) {
-            await scraperQueue.add('scrape-job', {
-                animeName,
-                episodeNumber: epNum,
-                episodeId: newEp._id,
-                season: targetSeason
-            });
-            count++;
-        }
-    }
-
-    res.status(200).json({ 
-        success: true, 
-        message: `Queued ${count} episodes for Season ${targetSeason}.`,
-        totalEpisodes: episodes.length 
+    // Send optimized payload
+    res.json({
+      success: true,
+      data: streamData,
+      ui: {
+        title: episode.title,
+        number: episode.number,
+        availableLanguages: episode.availableLanguages || ['japanese'],
+        availableSubtitles: episode.availableSubtitles || ['english']
+      }
     });
 
   } catch (error) {
-    console.error("Controller Error:", error);
-    next(error);
+    console.error("Stream Resolution Error:", error);
+    res.status(500).json({ message: "Internal Server Error", error: error.message });
   }
 };

@@ -2,71 +2,74 @@ const { launchBrowser } = require('./common.scraper');
 const logger = require('../utils/logger');
 
 /**
- * DesiDub Scraper logic
- * Goal: Find the underlying audio stream (m3u8 or mp4) via Network Tab
+ * Scrapes DesiDub for the playable iframe source.
+ * Supports Season-aware URLs and hidden data-src attributes.
  */
-async function getDesiDubAudio(episodeUrl) {
+const getDesiDubAudio = async (animeName, episodeNumber, season = 1) => {
   let browser = null;
+
   try {
     browser = await launchBrowser();
-    const page = await browser.newPage();
 
-    // 1. Request Interception Logic
-    let audioUrl = null;
+    // Force Desktop Viewport to ensure all server buttons and iframes are rendered
+    const context = await browser.newContext({
+      viewport: { width: 1920, height: 1080 },
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    });
 
-    // Browser ka network traffic suno
-    await page.route('**/*', (route) => route.continue());
-    
-    const requestPromise = page.waitForResponse(response => {
-      const url = response.url();
-      // Hum woh URL dhoond rahe hain jo video/audio stream ho
-      const isMedia = (url.includes('googlevideo.com') || url.includes('drive.google.com')) && 
-                      (url.includes('videoplayback') || url.includes('export=download'));
-      
-      // Content-Type check karlo safe side ke liye
-      const contentType = response.headers()['content-type'] || '';
-      
-      if (isMedia) {
-        // DesiDub pe video player actually audio file hi play kar raha hota hai aksar
-        // Ya agar video bhi hai, hum FFmpeg se sirf audio nikaal lenge
-        audioUrl = url;
-        return true;
-      }
-      return false;
-    }, { timeout: 30000 }); // 30 sec wait
+    const page = await context.newPage();
 
-    // 2. Page Load
-    logger.info(`Visiting DesiDub: ${episodeUrl}`);
-    await page.goto(episodeUrl, { waitUntil: 'domcontentloaded' });
-
-    // 3. Click Logic (Agar "Hindi" button dabana pade)
-    // Note: Selector site ke hisab se adjust karna padega
-    try {
-        const hindiBtn = await page.getByText('Hindi', { exact: false }).first();
-        if (await hindiBtn.isVisible()) {
-            await hindiBtn.click();
-        }
-    } catch (e) {
-        // Button nahi mila, shayad default hi Hindi ho
-        logger.warn('Hindi button click failed or not needed');
+    // Slug generation: Handles specific naming conventions like Solo Leveling
+    let slug = animeName.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-');
+    if (slug === 'solo-leveling') {
+      slug = 'ore-dake-level-up-na-ken';
     }
 
-    // 4. Wait for the network sniff to capture the URL
-    await requestPromise.catch(() => logger.warn("Network timeout waiting for media"));
+    // DesiDub uses /watch/ prefix for the actual player page
+    const url = `https://www.desidubanime.me/watch/${slug}-season-${season}-episode-${episodeNumber}`;
+    logger.info(`🎯 Targeting DesiDub URL: ${url}`);
 
-    if (audioUrl) {
-      logger.info(`🔥 DesiDub Audio Found: ${audioUrl.substring(0, 50)}...`);
-      return audioUrl;
-    } else {
-      throw new Error("Audio URL not found in network traffic");
+    await page.goto(url, {
+      waitUntil: 'domcontentloaded',
+      timeout: 60000
+    });
+
+    // Wait for lazy-loaded iframes and JS-injected players
+    logger.info('⏳ Waiting for player & iframe to appear...');
+    await page.waitForTimeout(15000);
+
+    const iframeSrc = await page.evaluate(() => {
+      const iframes = Array.from(document.querySelectorAll('iframe'));
+
+      const target = iframes.find(i => {
+        // Checks both 'src' and 'data-src' to bypass lazy-loading traps
+        const src = i.src || i.getAttribute('data-src') || '';
+        return (
+          src.includes('player') ||
+          src.includes('embed') ||
+          src.includes('cloud') ||
+          src.includes('ruby') ||
+          src.includes('abyss') ||
+          src.includes('vid')
+        );
+      });
+
+      return target ? (target.src || target.getAttribute('data-src')) : null;
+    });
+
+    if (!iframeSrc) {
+      throw new Error('No playable iframe found (Checked src & data-src)');
     }
 
-  } catch (error) {
-    logger.error(`DesiDub Scraper Error: ${error.message}`);
-    throw error;
+    logger.info(`✅ IFRAME FOUND: ${iframeSrc}`);
+    return iframeSrc;
+
+  } catch (err) {
+    logger.error(`❌ DesiDub Scraper Error: ${err.message}`);
+    throw err;
   } finally {
     if (browser) await browser.close();
   }
-}
+};
 
 module.exports = { getDesiDubAudio };

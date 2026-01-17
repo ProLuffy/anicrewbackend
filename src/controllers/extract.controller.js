@@ -9,60 +9,53 @@ const scraperQueue = new Queue(QUEUES.SCRAPER, { connection });
 
 exports.triggerScrape = async (req, res, next) => {
   try {
-    const { animeName, hianimeId } = req.body;
+    const { animeName, hianimeId, season } = req.body;
+    const targetSeason = season || 1; 
 
-    // 1. Fetch Episode List from HiAnime API
-    const data = await hianimeService.getEpisodes(hianimeId);
-    const episodes = data.episodes; // Adjust based on your API response structure
+    console.log(`Extraction Request: ${animeName} (Season ${targetSeason})`);
 
-    // 2. Save Series Info
+    const episodes = await hianimeService.getEpisodes(hianimeId);
+
+    if (!episodes || !Array.isArray(episodes)) {
+      return res.status(500).json({ message: "Failed to fetch episode list" });
+    }
+
     let series = await Series.findOneAndUpdate(
       { hianimeId },
       { title: animeName, totalEpisodes: episodes.length },
       { upsert: true, new: true }
     );
 
-    // 3. Queue Jobs for each episode
-    const jobs = episodes.map(ep => {
-      return {
-        name: 'scrape-job',
-        data: {
-          animeName,
-          episodeNumber: ep.number,
-          episodeId: null // We need to create DB entry first
-        }
-      };
-    });
-
-    // 4. Create Episode DB Entries & Add to Queue
-    let queuedCount = 0;
+    let count = 0;
     for (const ep of episodes) {
-        // Only process if not fully scraped
-        const exists = await Episode.findOne({ seriesId: series._id, number: ep.number });
-        if (!exists || (!exists.hasAudio && !exists.hasHardSub)) {
-            
-            const newEp = await Episode.findOneAndUpdate(
-                { seriesId: series._id, number: ep.number },
-                { hianimeEpisodeId: ep.episodeId, number: ep.number },
-                { upsert: true, new: true }
-            );
+        const epNum = ep.episodeNumber; 
+        const epId = ep.id; 
 
+        const newEp = await Episode.findOneAndUpdate(
+            { seriesId: series._id, number: epNum },
+            { hianimeEpisodeId: epId, number: epNum },
+            { upsert: true, new: true }
+        );
+
+        if (!newEp.hasAudio) {
             await scraperQueue.add('scrape-job', {
                 animeName,
-                episodeNumber: ep.number,
-                episodeId: newEp._id
+                episodeNumber: epNum,
+                episodeId: newEp._id,
+                season: targetSeason
             });
-            queuedCount++;
+            count++;
         }
     }
 
     res.status(200).json({ 
-      success: true, 
-      message: `Extraction started for ${animeName}`, 
-      queued: queuedCount 
+        success: true, 
+        message: `Queued ${count} episodes for Season ${targetSeason}.`,
+        totalEpisodes: episodes.length 
     });
 
   } catch (error) {
+    console.error("Controller Error:", error);
     next(error);
   }
 };

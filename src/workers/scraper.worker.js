@@ -9,35 +9,33 @@ const downloadQueue = new Queue(QUEUES.DOWNLOAD, { connection });
 
 const worker = new Worker(QUEUES.SCRAPER, async (job) => {
   let { animeName, episodeNumber, episodeId, season } = job.data;
-  
-  // Default to Season 1 if not explicitly provided
   const targetSeason = season || 1;
 
-  logger.info(`🚀 Starting Scrape: ${animeName} | S${targetSeason}-Ep${episodeNumber}`);
+  logger.info(`🚀 Scraper Started: ${animeName} S${targetSeason} E${episodeNumber}`);
 
   try {
+    // Iframe URL nikalo
     const iframeUrl = await desidubScraper.getDesiDubAudio(animeName, episodeNumber, targetSeason);
 
     if (iframeUrl) {
-        await Episode.findByIdAndUpdate(episodeId, {
-            audioUrl: iframeUrl,
-            hasAudio: true
-        });
+        // DB update (Temporary Source)
+        await Episode.findByIdAndUpdate(episodeId, { hasExternalAudio: true });
         
-        logger.info(`✅ Link Found! Passing to Download Queue...`);
+        logger.info(`✅ Link Found! Sending to Download Worker...`);
 
+        // Send to Download Queue
         await downloadQueue.add('download-audio', {
             url: iframeUrl,
             episodeId: episodeId,
             episodeNumber: episodeNumber,
-            isDriveLink: true 
+            animeName: animeName,
+            season: targetSeason,
+            type: 'audio' // 'subtitle' bhi bhej sakte ho alag job me
         });
-    } else {
-        throw new Error("Iframe source extraction returned empty");
     }
 
   } catch (error) {
-    logger.error(`Scrape Job Failed: ${error.message}`);
+    logger.error(`Scrape Failed: ${error.message}`);
     throw error;
   }
 }, { connection });

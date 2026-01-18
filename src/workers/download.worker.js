@@ -1,61 +1,55 @@
-const { Worker, Queue } = require('bullmq');
-const { connection } = require('../config/redis.config');
-const { QUEUES, PATHS } = require('../config/constants');
-const ffmpegService = require('../services/ffmpeg.service');
-const path = require('path');
+const { Worker } = require('bullmq');
+const axios = require('axios');
 const fs = require('fs');
+const path = require('path');
+const { connection } = require('../config/redis.config');
+const { QUEUES } = require('../config/constants');
+const Episode = require('../models/Episode.model');
+const driveService = require('../services/drive.service');
 const logger = require('../utils/logger');
 
-const uploadQueue = new Queue(QUEUES.UPLOAD, { connection });
-const subtitleQueue = new Queue(QUEUES.SUBTITLE, { connection });
-
 const worker = new Worker(QUEUES.DOWNLOAD, async (job) => {
-  const { episodeId, audioUrl, tpxUrl, animeName, episodeNumber } = job.data;
-  const safeName = `${animeName.replace(/ /g, '_')}_Ep${episodeNumber}`;
+  const { url, episodeId, episodeNumber, animeName, season, type } = job.data;
+  
+  logger.info(`⬇️ Processing ${type}: ${animeName} E${episodeNumber}`);
 
-  const audioPath = path.join(PATHS.DOWNLOADS, `${safeName}_audio.m4a`);
-  const tpxPath = path.join(PATHS.DOWNLOADS, `${safeName}_tpx.mp4`);
+  // Temp folder setup
+  const ext = type === 'audio' ? 'mp3' : 'vtt';
+  const fileName = `${animeName.replace(/\s+/g, '_')}_S${season}_E${episodeNumber}.${ext}`;
+  const tempPath = path.join(__dirname, '../../temp', fileName);
+  
+  if (!fs.existsSync(path.dirname(tempPath))) fs.mkdirSync(path.dirname(tempPath), { recursive: true });
 
   try {
-    const uploadJobs = [];
+    // 1. Download
+    const writer = fs.createWriteStream(tempPath);
+    const response = await axios({ url, method: 'GET', responseType: 'stream' });
+    response.data.pipe(writer);
 
-    // 1. Extract/Download Audio (DesiDub)
-    if (audioUrl) {
-      logger.info(`Downloading Audio: ${safeName}`);
-      await ffmpegService.extractAudio(audioUrl, audioPath);
-      
-      uploadJobs.push({
-        type: 'audio',
-        filePath: audioPath,
-        episodeId,
-        language: 'Hindi'
-      });
-    }
+    await new Promise((resolve, reject) => {
+      writer.on('finish', resolve);
+      writer.on('error', reject);
+    });
 
-    // 2. Download TPX Video (Optional - Storage permitting)
-    if (tpxUrl) {
-      logger.info(`Downloading TPX Video: ${safeName}`);
-      // Simple stream copy download
-      // Note: Implementation of downloadVideo similar to extractAudio
-      // await ffmpegService.downloadVideo(tpxUrl, tpxPath);
-      // uploadJobs.push({ type: 'video', filePath: tpxPath, episodeId, source: 'tpx' });
-    }
+    // 2. Upload to Drive
+    logger.info(`☁️ Uploading to Drive...`);
+    const driveLink = await driveService.uploadToDrive(tempPath, fileName, animeName, season);
 
-    // 3. Send to Upload Queue
-    for (const item of uploadJobs) {
-        await uploadQueue.add('upload-job', item);
-    }
+    // 3. Auto Attach to HiAnime Video (DB Update)
+    const updateField = type === 'audio' 
+      ? { 'audioSources.hindi': driveLink, hasExternalAudio: true }
+      : { 'subtitleSources.hindi': driveLink };
 
-    // 4. Trigger Gemini Subtitle Job (Audio file banne ke baad)
-    if (fs.existsSync(audioPath)) {
-        await subtitleQueue.add('subtitle-job', {
-            filePath: audioPath, // Note: Upload worker needs to handle deletion carefully
-            episodeId
-        });
-    }
+    await Episode.findByIdAndUpdate(episodeId, updateField);
+
+    logger.info(`✅ Attached to Episode: ${driveLink}`);
+    
+    // Cleanup
+    fs.unlinkSync(tempPath);
 
   } catch (error) {
-    logger.error(`Download Job Failed: ${error.message}`);
+    logger.error(`Download/Upload Failed: ${error.message}`);
+    // Retry logic BullMQ khud sambhal lega
     throw error;
   }
 }, { connection });

@@ -1,14 +1,17 @@
 const mongoose = require('mongoose');
 
-const seriesSchema = new mongoose.Schema({
-  hianimeId: { type: String, required: true, unique: true }, // e.g., "solo-leveling-123"
-  title: { type: String, required: true },
-  description: String,
-  poster: String,
+const SeriesSchema = new mongoose.Schema({
+  hianimeId: { type: String, required: true, unique: true },
+  title: { type: String, required: true }, // Series ka naam auto-save hoga
   totalEpisodes: { type: Number, default: 0 },
-  type: { type: String, default: 'TV' }, // TV, Movie, OVA
-  isOngoing: { type: Boolean, default: false },
-  lastSync: { type: Date, default: Date.now }
+  
+  // 🔥 Status Flag: Taaki dobara extract na ho
+  extractionStatus: { 
+    type: String, 
+    enum: ['pending', 'processing', 'completed', 'failed'], 
+    default: 'pending' 
+  },
+  lastProcessedAt: { type: Date }
 }, { timestamps: true });
 
-module.exports = mongoose.model('Series', seriesSchema);
+module.exports = mongoose.model('Series', SeriesSchema);

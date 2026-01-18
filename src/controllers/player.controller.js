@@ -1,55 +1,89 @@
 const Episode = require('../models/Episode.model');
-const VideoSource = require('../models/VideoSource.model');
-const AudioTrack = require('../models/AudioTrack.model');
-const Subtitle = require('../models/Subtitle.model');
 const hianimeService = require('../services/hianime.service');
 
 exports.getEpisodeData = async (req, res, next) => {
   try {
-    const { episodeId } = req.params; // Internal MongoDB ID
+    const { episodeId } = req.params;
 
-    // 1. Fetch Episode Metadata
     const episode = await Episode.findById(episodeId).populate('seriesId');
-    if (!episode) return res.status(404).json({ message: "Episode not found" });
-
-    // 2. Get Live HiAnime Stream (Video)
-    // Hum DB me stream URL store nahi karte kyunki wo expire hote hain
-    let videoUrl = null;
-    try {
-        const sources = await hianimeService.getEpisodeSources(episode.hianimeEpisodeId);
-        // Logic to pick best m3u8 (usually first one or 'master')
-        videoUrl = sources.sources[0].url; 
-    } catch (e) {
-        console.error("HiAnime fetch failed, looking for TPX fallback");
+    if (!episode) {
+      return res.status(404).json({ message: 'Episode not found' });
     }
 
-    // 3. Get Audio Tracks (Drive)
-    const audioTracks = await AudioTrack.find({ episodeId: episode._id });
+    // 🎥 PRIMARY VIDEO (HiAnime – Live Fetch)
+    let videoUrl = null;
+    let videoSource = 'hianime';
 
-    // 4. Get Subtitles (Gemini/Local)
-    const subtitles = await Subtitle.find({ episodeId: episode._id });
+    try {
+      const sources = await hianimeService.getEpisodeSources(
+        episode.hianimeEpisodeId
+      );
 
-    // 5. Get Fallback Video (TPX Hardsub)
-    const fallback = await VideoSource.findOne({ episodeId: episode._id, source: 'tpx' });
+      videoUrl = sources?.sources?.find(s => s.url.includes('m3u8'))?.url;
+    } catch (err) {
+      console.warn('⚠️ HiAnime stream failed, checking TPX fallback');
+    }
 
-    // 6. Construct Player JSON
-    res.status(200).json({
+    // 🏴‍☠️ TPX FALLBACK (Hard-sub override)
+    if (!videoUrl && episode.hasTPXOverride && episode.tpxData?.driveUrl) {
+      videoUrl = episode.tpxData.driveUrl;
+      videoSource = 'tpx';
+    }
+
+    if (!videoUrl) {
+      return res.status(503).json({ message: 'No playable source available' });
+    }
+
+    // 🔊 AUDIO TRACKS
+    const audioTracks = [];
+    for (const [lang, source] of Object.entries(episode.audioSources || {})) {
+      if (!source) continue;
+
+      if (source === 'hianime') {
+        audioTracks.push({
+          lang,
+          type: 'embedded'
+        });
+      } else {
+        audioTracks.push({
+          lang,
+          type: 'external',
+          url: source
+        });
+      }
+    }
+
+    // 📝 SUBTITLES
+    const subtitles = [];
+    for (const [lang, src] of Object.entries(episode.subtitleSources || {})) {
+      if (!src) continue;
+
+      subtitles.push({
+        lang,
+        type: src === 'hianime' ? 'embedded' : 'external',
+        url: src === 'hianime' ? null : src
+      });
+    }
+
+    // 🎯 FINAL PLAYER PAYLOAD
+    return res.json({
       title: `${episode.seriesId.title} - EP ${episode.number}`,
+      episode: episode.number,
+
       video: {
-        source: 'hianime',
-        url: videoUrl,
-        fallbackUrl: fallback ? `https://drive.google.com/uc?id=${fallback.driveFileId}` : null
+        source: videoSource,
+        type: videoSource === 'hianime' ? 'hls' : 'mp4',
+        url: videoUrl
       },
-      audio: audioTracks.map(track => ({
-        lang: track.language,
-        url: `https://drive.google.com/uc?export=download&id=${track.driveFileId}`,
-        offset: track.offset
-      })),
-      subtitles: subtitles.map(sub => ({
-        lang: sub.language,
-        url: `/subtitles/${sub.localPath}`, // Served statically
-        type: sub.format
-      }))
+
+      audio: audioTracks,
+      subtitles,
+
+      meta: {
+        availableLanguages: episode.availableLanguages || [],
+        availableSubtitles: episode.availableSubtitles || [],
+        hasTPXOverride: episode.hasTPXOverride
+      }
     });
 
   } catch (error) {

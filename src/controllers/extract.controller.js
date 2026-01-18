@@ -1,34 +1,63 @@
+const { Queue } = require('bullmq');
+const { connection } = require('../config/redis.config');
+const { QUEUES } = require('../config/constants');
+const Series = require('../models/Series.model');
 const Episode = require('../models/Episode.model');
-const { resolveStream } = require('../utils/streamResolver');
+const hianimeService = require('../services/hianime.service');
 
-exports.getStreamData = async (req, res) => {
+const scraperQueue = new Queue(QUEUES.SCRAPER, { connection });
+
+exports.triggerScrape = async (req, res, next) => {
   try {
-    const { episodeId } = req.query;
-    const lang = (req.query.lang || 'japanese').toLowerCase();
-    const type = (req.query.type || 'sub').toLowerCase();
+    const { animeName, hianimeId, season } = req.body;
+    const targetSeason = season || 1;
 
-    if (!episodeId) return res.status(400).json({ message: "Missing episodeId" });
+    // 🛑 DUPLICATE CHECK
+    const existingSeries = await Series.findOne({ hianimeId });
+    if (existingSeries && existingSeries.extractionStatus === 'completed') {
+      return res.status(200).json({ message: "Series already fully extracted!", status: 'completed' });
+    }
 
-    const episode = await Episode.findById(episodeId);
-    if (!episode) return res.status(404).json({ message: "Episode not found" });
+    // AUTO CREATE/UPDATE SERIES
+    let series = await Series.findOneAndUpdate(
+      { hianimeId },
+      { 
+        title: animeName, 
+        extractionStatus: 'processing',
+        lastProcessedAt: new Date()
+      },
+      { upsert: true, new: true }
+    );
 
-    // 🧠 Execute Decision Engine
-    const streamData = resolveStream(episode, lang, type);
+    // Fetch Episodes from HiAnime
+    const episodes = await hianimeService.getEpisodes(hianimeId);
+    
+    let count = 0;
+    for (const ep of episodes) {
+        const epNum = ep.episodeNumber; 
+        
+        const newEp = await Episode.findOneAndUpdate(
+            { seriesId: series._id, number: epNum },
+            { hianimeEpisodeId: ep.id, number: epNum },
+            { upsert: true, new: true }
+        );
 
-    // Send optimized payload
-    res.json({
-      success: true,
-      data: streamData,
-      ui: {
-        title: episode.title,
-        number: episode.number,
-        availableLanguages: episode.availableLanguages || ['japanese'],
-        availableSubtitles: episode.availableSubtitles || ['english']
-      }
+        // Job Queue: Pass Series Name for Drive Folder
+        await scraperQueue.add('scrape-job', {
+            animeName: series.title, 
+            episodeNumber: epNum,
+            episodeId: newEp._id,
+            season: targetSeason
+        });
+        count++;
+    }
+
+    res.status(200).json({ 
+        success: true, 
+        message: `Started processing ${count} episodes for ${animeName}. Files will be on Drive soon.`,
     });
 
   } catch (error) {
-    console.error("Stream Resolution Error:", error);
-    res.status(500).json({ message: "Internal Server Error", error: error.message });
+    next(error);
   }
 };

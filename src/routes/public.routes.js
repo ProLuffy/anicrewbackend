@@ -3,6 +3,6 @@ const router = express.Router();
 const controller = require('../controllers/player.controller');
 
 // GET /api/public/episode/:episodeId
-router.get('/episode/:episodeId', controller.getEpisodeData);
+router.get('/episode/:episodeId', controller.getStreamData);
 
 module.exports = router;

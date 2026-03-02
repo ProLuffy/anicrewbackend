@@ -9,7 +9,7 @@ const scraperQueue = new Queue(QUEUES.SCRAPER, { connection });
 
 exports.triggerScrape = async (req, res, next) => {
   try {
-    const { animeName, hianimeId, season } = req.body;
+    const { animeName, hianimeId, season, sourceType } = req.body;
     const targetSeason = season || 1;
 
     // 🛑 DUPLICATE CHECK
@@ -47,7 +47,8 @@ exports.triggerScrape = async (req, res, next) => {
             animeName: series.title, 
             episodeNumber: epNum,
             episodeId: newEp._id,
-            season: targetSeason
+            season: targetSeason,
+            sourceType: sourceType
         });
         count++;
     }

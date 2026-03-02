@@ -62,111 +62,103 @@ res.status(500).json({ success: false, error: error.message });
 
 // Serve the Admin UI HTML
 exports.renderAdminPanel = (req, res) => {
-const html = `
-<!DOCTYPE html>
+  const html = `
+  <!DOCTYPE html>
+  <html lang="en">
+  <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>AniCrew Pro Importer</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+      <style>
+          body { background-color: #121212; color: #ffffff; font-family: system-ui, sans-serif; margin: 0; padding: 20px; }
+          .container { max-width: 1200px; margin: 0 auto; }
+          .input-box { width: 100%; padding: 12px; background: #222; color: white; border: 1px solid #444; border-radius: 6px; margin-bottom: 10px;}
+          .btn { padding: 12px 20px; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; }
+          .btn-red { background: #e50914; color: white; }
+          .btn-blue { background: #2563eb; color: white; margin-bottom: 5px; width: 100%; }
+          .btn-green { background: #16a34a; color: white; width: 100%; }
+          .error-text { color: #ef4444; font-weight: bold; margin-top: 10px; }
+          .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; margin-top: 20px; }
+          .card { background: #1a1a1a; padding: 15px; border-radius: 10px; border: 1px solid #333; }
+          .card img { width: 100%; height: 250px; object-fit: cover; border-radius: 6px; margin-bottom: 10px;}
+      </style>
+  </head>
+  <body>
+      <div class="container">
+          <h1 style="font-size: 2rem; margin-bottom: 5px;"><span style="color:#e50914">AniCrew</span> Auto-Importer</h1>
+          <p style="color: #aaa; margin-bottom: 20px;">Downloads videos to Premium Drive & Syncs with Vercel.</p>
 
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AniCrew Auto-Importer</title>
-<script src="https://cdn.tailwindcss.com"></script>
-<style>body { background-color: #0a0a0a; color: white; font-family: sans-serif; }</style>
-</head>
-<body class="p-8">
-<div class="max-w-7xl mx-auto">
-<h1 class="text-4xl font-black mb-2"><span class="text-red-600">AniCrew</span> Auto-Importer</h1>
-<p class="text-gray-400 mb-8">Search an anime. The system will auto-fetch metadata from HiAnime, scrape external audio/video, upload to Drive, and sync the DB.</p>
-
-                  <div class="flex gap-4 mb-10">
-          <input type="text" id="searchInput" placeholder="Enter Anime Name (e.g. Solo Leveling)" class="flex-1 bg-[#1a1a1a] border border-gray-700 p-4 rounded-lg text-white focus:border-red-500 focus:outline-none text-lg">
-          <button onclick="searchAnime()" class="bg-red-600 hover:bg-red-700 px-8 py-4 rounded-lg font-bold text-lg transition-all shadow-lg shadow-red-600/30">Search</button>
-      </div>
+          <div style="display: flex; gap: 10px;">
+              <input type="text" id="searchInput" class="input-box" placeholder="Anime Name (e.g. Naruto)">
+              <button onclick="searchAnime()" class="btn btn-red" style="height: 45px;">Search</button>
+          </div>
 
 
-                  <div id="loading" class="hidden text-center text-red-500 my-10 text-xl font-bold animate-pulse">Scanning Anime Databases...</div>
-
-
-                  <div id="resultsGrid" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6"></div>
+      <div id="statusBox" class="error-text"></div>
+      <div id="resultsGrid" class="grid"></div>
   </div>
 
 
   <script>
+      const urlParams = new URLSearchParams(window.location.search);
+      const apiKey = urlParams.get('apiKey') || '';
+      const authQuery = apiKey ? \`&apiKey=\${apiKey}\` : '';
+      const statusBox = document.getElementById('statusBox');
+
       async function searchAnime() {
           const query = document.getElementById('searchInput').value;
           if(!query) return;
-
-          document.getElementById('loading').classList.remove('hidden');
+          statusBox.innerHTML = '<span style="color: #facc15;">⏳ Scanning Databases...</span>';
           document.getElementById('resultsGrid').innerHTML = '';
-
-
           try {
-              const res = await fetch(\`/api/admin/search?q=\${encodeURIComponent(query)}\`);
+              const res = await fetch(\`/api/admin/search?q=\${encodeURIComponent(query)}\${authQuery}\`);
               const json = await res.json();
-
-              if(json.success && json.data) {
+              if(res.ok && json.success) {
+                  statusBox.innerHTML = '';
                   renderResults(json.data);
               } else {
-                  alert('No results found.');
+                  statusBox.innerText = '❌ Error: ' + (json.message || 'API rejected. Missing API Key?');
               }
-          } catch(e) {
-              alert('Error searching anime');
-          } finally {
-              document.getElementById('loading').classList.add('hidden');
-          }
+          } catch(e) { statusBox.innerText = '❌ Critical Error: ' + e.message; }
       }
 
 
       function renderResults(animes) {
           const grid = document.getElementById('resultsGrid');
           grid.innerHTML = animes.map(anime => \`
-              <div class="bg-[#111] border border-gray-800 rounded-xl overflow-hidden shadow-lg p-4 flex flex-col group hover:border-red-500 transition-colors">
-                  <img src="\${anime.poster}" alt="\${anime.name}" class="w-full h-72 object-cover rounded-lg mb-4 group-hover:scale-105 transition-transform duration-300">
-                  <h3 class="font-bold text-sm text-gray-200 line-clamp-2 mb-3 flex-1">\${anime.name}</h3>
-
-                  <div class="space-y-2 mt-auto">
-                      <div class="flex gap-2">
-                          <input type="number" id="season-\${anime.id}" placeholder="Season" value="1" title="Season number for Desidub scraping" class="w-20 bg-[#222] border border-gray-700 text-center rounded px-2 py-2 text-sm text-white focus:outline-none focus:border-red-500">
-                          <button onclick="importAnime('\${anime.id}', '\${anime.name.replace(/'/g, "\\\\'")}')" class="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-2 rounded transition-colors text-sm shadow-lg shadow-red-600/20">
-                              📥 Import All
-                          </button>
-                      </div>
+              <div class="card">
+                  <img src="\${anime.poster}" alt="Poster">
+                  <h3 style="font-size: 14px; margin-bottom: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">\${anime.name}</h3>
+                  <input type="number" id="season-\${anime.id}" value="1" class="input-box" style="padding: 5px; margin-bottom: 10px;" placeholder="Season">
+                  <div>
+                      <button onclick="importData(this, '\${anime.id}', '\${anime.name.replace(/'/g, "\\\\'")}', 'tpx')" class="btn btn-blue" style="font-size: 12px;">📥 Import TPX (Sub)</button>
+                      <button onclick="importData(this, '\${anime.id}', '\${anime.name.replace(/'/g, "\\\\'")}', 'desidub')" class="btn btn-green" style="font-size: 12px;">📥 Import DesiDub (Dub)</button>
                   </div>
+                  <div id="log-\${anime.id}" style="font-size: 11px; margin-top: 8px; color: #facc15;"></div>
               </div>
           \`).join('');
       }
 
 
-      async function importAnime(hianimeId, animeName) {
+      async function importData(btnElement, hianimeId, animeName, sourceType) {
           const season = document.getElementById(\`season-\${hianimeId}\`).value || 1;
-          const btn = event.target;
-          const originalText = btn.innerHTML;
-
-          btn.innerText = '⚙️ Queuing...';
-          btn.disabled = true;
-          btn.classList.add('opacity-50');
-
-
+          const logBox = document.getElementById(\`log-\${hianimeId}\`);
+          btnElement.disabled = true; btnElement.style.opacity = '0.5';
+          logBox.innerText = '⚙️ Queuing ' + sourceType.toUpperCase() + '...';
           try {
-              const res = await fetch('/api/extract/start', {
+              const res = await fetch(\`/api/extract/start?apiKey=\${apiKey}\`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ hianimeId, animeName, season: parseInt(season) })
+                  body: JSON.stringify({ hianimeId, animeName, season: parseInt(season), sourceType })
               });
               const data = await res.json();
-
-              if(data.success) {
-                  alert(data.message || 'Import started successfully! Check workers for progress.');
-                  btn.innerText = '✅ Processing';
-                  btn.classList.replace('bg-red-600', 'bg-green-600');
-              } else {
-                  throw new Error(data.message || 'Import failed');
-              }
+              if(res.ok && data.success) {
+                  logBox.style.color = '#4ade80'; logBox.innerText = '✅ ' + (data.message || 'Queued!');
+              } else { throw new Error(data.message || 'Import failed'); }
           } catch(e) {
-              alert(e.message);
-              btn.innerHTML = originalText;
-              btn.disabled = false;
-              btn.classList.remove('opacity-50');
+              logBox.style.color = '#ef4444'; logBox.innerText = '❌ ' + e.message;
+              btnElement.disabled = false; btnElement.style.opacity = '1';
           }
       }
   </script>

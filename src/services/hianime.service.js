@@ -3,8 +3,8 @@ const logger = require('../utils/logger');
 
 class HiAnimeService {
   constructor() {
-    // Tera naya Vercel API Link
-    this.baseUrl = process.env.HIANIME_API_URL || 'https://hianime-api-seven-teal.vercel.app';
+    // Sirf Base Domain aayega, aage ka koi kachra nahi!
+    this.baseUrl = 'https://hianime-api-seven-teal.vercel.app';
   }
 
   /**
@@ -12,7 +12,7 @@ class HiAnimeService {
    */
   async searchAnime(query) {
     try {
-      // ✅ Yahan maine naya rasta lagaya hai: /search?q=
+      // Ab yeh seedha banega: https://hianime-api-seven-teal.vercel.app/search?q=solo
       const { data } = await axios.get(`${this.baseUrl}/search?q=${encodeURIComponent(query)}`);
       return data;
     } catch (error) {
@@ -26,7 +26,6 @@ class HiAnimeService {
    */
   async getEpisodes(animeId) {
     try {
-      // Hum assume kar rahe hain episodes ka rasta purana wala hi hoga, agar import fasa toh ise fix karenge
       const { data } = await axios.get(`${this.baseUrl}/anime/episodes/${animeId}`);
       return data;
     } catch (error) {

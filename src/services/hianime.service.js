@@ -4,15 +4,15 @@ const logger = require('../utils/logger');
 class HiAnimeService {
   constructor() {
     // Tera naya Vercel API Link
-    this.baseUrl = process.env.HIANIME_API_URL || 'https://hianime-api-seven-teal.vercel.app/api/v2/hianime';
+    this.baseUrl = process.env.HIANIME_API_URL || 'https://hianime-api-seven-teal.vercel.app';
   }
 
   /**
    * Anime search by name
-   * @param {string} query
    */
   async searchAnime(query) {
     try {
+      // ✅ Yahan maine naya rasta lagaya hai: /search?q=
       const { data } = await axios.get(`${this.baseUrl}/search?q=${encodeURIComponent(query)}`);
       return data;
     } catch (error) {
@@ -23,11 +23,11 @@ class HiAnimeService {
 
   /**
    * Get Episode List
-   * @param {string} animeId
    */
   async getEpisodes(animeId) {
     try {
-      const { data } = await axios.get(`${this.baseUrl}/anime/${animeId}/episodes`);
+      // Hum assume kar rahe hain episodes ka rasta purana wala hi hoga, agar import fasa toh ise fix karenge
+      const { data } = await axios.get(`${this.baseUrl}/anime/episodes/${animeId}`);
       return data;
     } catch (error) {
       logger.error(`HiAnime Episode List Error: ${error.message}`);
@@ -37,11 +37,10 @@ class HiAnimeService {
 
   /**
    * Get Streaming Links (M3U8)
-   * @param {string} episodeId
    */
   async getEpisodeSources(episodeId) {
     try {
-      const { data } = await axios.get(`${this.baseUrl}/episode/sources?animeEpisodeId=${episodeId}`);
+      const { data } = await axios.get(`${this.baseUrl}/anime/episode-srcs?id=${episodeId}`);
       return data;
     } catch (error) {
       logger.error(`HiAnime Source Error: ${error.message}`);

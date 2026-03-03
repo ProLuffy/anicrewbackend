@@ -1,5 +1,5 @@
 const { GoogleGenerativeAI } = require("@google/generative-ai");
-const { GoogleAIFileManager } = require("@google/generative-ai/server");
+const { GoogleAIFileManager } = require("@google/generative-ai/files");
 const fs = require('fs');
 const logger = require('../utils/logger');
 

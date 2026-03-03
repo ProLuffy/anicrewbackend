@@ -57,7 +57,9 @@ exports.searchAnimeForImport = async (req, res) => {
     }
 };
 
-// Serve the Admin UI HTML
+
+
+  // Serve the Admin UI HTML
 exports.renderAdminPanel = (req, res) => {
   const html = `
   <!DOCTYPE html>
@@ -87,7 +89,7 @@ exports.renderAdminPanel = (req, res) => {
           <p style="color: #aaa; margin-bottom: 20px;">Downloads videos to Premium Drive & Syncs with Vercel.</p>
 
           <div style="display: flex; gap: 10px;">
-              <input type="text" id="searchInput" class="input-box" placeholder="Anime Name (e.g. Naruto)" onkeypress="if(event.key === 'Enter') searchAnime()">
+              <input type="text" id="searchInput" class="input-box" placeholder="Anime Name (e.g. Naruto)">
               <button onclick="searchAnime()" class="btn btn-red" style="height: 48px; min-width: 100px;">Search</button>
           </div>
 
@@ -116,7 +118,7 @@ exports.renderAdminPanel = (req, res) => {
               grid.innerHTML = '';
 
               try {
-                  const endpoint = \`/api/admin/search?q=\${encodeURIComponent(query)}&apiKey=\${apiKey}\`;
+                  const endpoint = "/api/admin/search?q=" + encodeURIComponent(query) + "&apiKey=" + apiKey;
                   const res = await fetch(endpoint);
                   const json = await res.json();
 
@@ -137,33 +139,38 @@ exports.renderAdminPanel = (req, res) => {
 
           function renderResults(animes) {
               const grid = document.getElementById('resultsGrid');
-              grid.innerHTML = animes.map(anime => \`
-                  <div class="card">
-                      <img src="\${anime.poster}" alt="Poster" onerror="this.src='https://via.placeholder.com/200x300?text=No+Image'">
-                      <h3 style="font-size: 14px; margin-bottom: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="\${anime.name}">\${anime.name}</h3>
-                      <input type="number" id="season-\${anime.id}" value="1" class="input-box" style="padding: 5px; margin-bottom: 10px;" placeholder="Season">
-                      <div>
-                          <button onclick="importData(this, '\${anime.id}', '\${anime.name.replace(/'/g, "\\\\'")}', 'tpx')" class="btn btn-blue" style="font-size: 12px;">📥 Import TPX (Sub)</button>
-                          <button onclick="importData(this, '\${anime.id}', '\${anime.name.replace(/'/g, "\\\\'")}', 'desidub')" class="btn btn-green" style="font-size: 12px;">📥 Import DesiDub</button>
-                      </div>
-                      <div id="log-\${anime.id}" style="font-size: 11px; margin-top: 8px; font-weight: bold;"></div>
-                  </div>
-              \`).join('');
+              let htmlStr = '';
+              for(let i=0; i<animes.length; i++) {
+                  const anime = animes[i];
+                  const safeName = anime.name.replace(/'/g, "\\\\'");
+                  htmlStr += '<div class="card">';
+                  htmlStr += '<img src="' + anime.poster + '" alt="Poster" onerror="this.src=\\'https://via.placeholder.com/200x300?text=No+Image\\'">';
+                  htmlStr += '<h3 style="font-size: 14px; margin-bottom: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="' + anime.name + '">' + anime.name + '</h3>';
+                  htmlStr += '<input type="number" id="season-' + anime.id + '" value="1" class="input-box" style="padding: 5px; margin-bottom: 10px;" placeholder="Season">';
+                  htmlStr += '<div>';
+                  htmlStr += '<button onclick="importData(this, \\'' + anime.id + '\\', \\'' + safeName + '\\', \\'tpx\\')" class="btn btn-blue" style="font-size: 12px;">📥 Import TPX (Sub)</button>';
+                  htmlStr += '<button onclick="importData(this, \\'' + anime.id + '\\', \\'' + safeName + '\\', \\'desidub\\')" class="btn btn-green" style="font-size: 12px;">📥 Import DesiDub</button>';
+                  htmlStr += '</div>';
+                  htmlStr += '<div id="log-' + anime.id + '" style="font-size: 11px; margin-top: 8px; font-weight: bold;"></div>';
+                  htmlStr += '</div>';
+              }
+              grid.innerHTML = htmlStr;
           }
 
           async function importData(btnElement, hianimeId, animeName, sourceType) {
-              const season = document.getElementById(\`season-\${hianimeId}\`).value || 1;
-              const logBox = document.getElementById(\`log-\${hianimeId}\`);
+              const season = document.getElementById("season-" + hianimeId).value || 1;
+              const logBox = document.getElementById("log-" + hianimeId);
               btnElement.disabled = true;
               btnElement.style.opacity = '0.5';
               logBox.style.color = '#facc15';
               logBox.innerText = '⚙️ Queuing ' + sourceType.toUpperCase() + '...';
 
               try {
-                  const res = await fetch(\`/api/extract/start?apiKey=\${apiKey}\`, {
+                  const endpoint = "/api/extract/start?apiKey=" + apiKey;
+                  const res = await fetch(endpoint, {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ hianimeId, animeName, season: parseInt(season), sourceType })
+                      body: JSON.stringify({ hianimeId: hianimeId, animeName: animeName, season: parseInt(season), sourceType: sourceType })
                   });
                   const data = await res.json();
                   if(res.ok && data.success) {

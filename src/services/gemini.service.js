@@ -11,9 +11,6 @@ class GeminiService {
     this.model = this.genAI.getGenerativeModel({ model: "gemini-1.5-pro-latest" });
   }
 
-  /**
-   * Uploads file to Gemini (Temporary storage)
-   */
   async uploadMedia(filePath, mimeType) {
     try {
       const uploadResponse = await this.fileManager.uploadFile(filePath, {
@@ -29,14 +26,8 @@ class GeminiService {
     }
   }
 
-  /**
-   * Generate Subtitles
-   */
   async generateSubtitles(fileUri) {
     try {
-      // Wait for file processing state to be ACTIVE
-      // (Production code me yahan loop laga ke wait karna chahiye)
-      
       const prompt = `
         Listen to this audio track from an anime episode.
         Generate subtitles in HINDI.
@@ -50,15 +41,14 @@ class GeminiService {
       const result = await this.model.generateContent([
         {
           fileData: {
-            mimeType: "audio/mp3", // Or whatever the audio is
+            mimeType: "audio/mp3",
             fileUri: fileUri
           }
         },
         { text: prompt }
       ]);
 
-      const response = result.response.text();
-      return response; // Raw SRT string
+      return result.response.text();
     } catch (error) {
       logger.error(`Gemini Subtitle Generation Failed: ${error.message}`);
       throw error;

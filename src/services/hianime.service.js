@@ -3,7 +3,7 @@ const logger = require('../utils/logger');
 
 class HiAnimeService {
   constructor() {
-    this.baseUrl = process.env.HIANIME_API_URL || 'https://hianimeapi-1vww.onrender.com';
+    this.baseUrl = process.env.HIANIME_API_URL || 'https://hianime-api-seven-teal.vercel.app';
   }
 
   /**
@@ -12,7 +12,7 @@ class HiAnimeService {
    */
   async searchAnime(query) {
     try {
-      const { data } = await axios.get(`${this.baseUrl}/anime/search?q=${encodeURIComponent(query)}`);
+      const { data } = await axios.get(`${this.baseUrl}/api/v2/hianime/search?q=${encodeURIComponent(query)}`);
       return data;
     } catch (error) {
       logger.error(`HiAnime Search Error: ${error.message}`);
@@ -26,7 +26,7 @@ class HiAnimeService {
    */
   async getEpisodes(animeId) {
     try {
-      const { data } = await axios.get(`${this.baseUrl}/anime/episodes/${animeId}`);
+      const { data } = await axios.get(`${this.baseUrl}/api/v2/hianime/anime/${animeId}/episodes`);
       return data; 
     } catch (error) {
       logger.error(`HiAnime Episode List Error: ${error.message}`);
@@ -40,13 +40,10 @@ class HiAnimeService {
    */
   async getEpisodeSources(episodeId) {
     try {
-      // Standard endpoint for most HiAnime wrappers
-      // Agar teri API ka endpoint alag hai to yahan change kar dena
-      const { data } = await axios.get(`${this.baseUrl}/anime/episode-srcs?id=${episodeId}`);
+      const { data } = await axios.get(`${this.baseUrl}/api/v2/hianime/episode/sources?animeEpisodeId=${episodeId}`);
       return data;
     } catch (error) {
       logger.error(`HiAnime Source Error: ${error.message}`);
-      // Agar render API sleep mode me hai to retry logic add kar sakte hain
       throw error;
     }
   }

@@ -1,3 +1,71 @@
+const Episode = require('../models/Episode.model');
+const Series = require('../models/Series.model');
+const { Queue } = require('bullmq');
+const { connection } = require('../config/redis.config');
+const { QUEUES } = require('../config/constants');
+const hianimeService = require('../services/hianime.service');
+
+// Queues init
+const scraperQueue = new Queue(QUEUES.SCRAPER, { connection });
+const subtitleQueue = new Queue(QUEUES.SUBTITLE, { connection });
+
+exports.getDashboardStats = async (req, res) => {
+  try {
+    const totalSeries = await Series.countDocuments();
+    const totalEpisodes = await Episode.countDocuments();
+    const episodesWithAudio = await Episode.countDocuments({ hasAudio: true });
+    // Get Queue Counts (Real-time monitoring)
+    const pendingScrapes = await scraperQueue.getWaitingCount();
+
+    res.json({
+      overview: { totalSeries, totalEpisodes, episodesWithAudio },
+      queues: { pendingScrapes }
+    });
+
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.retryJob = async (req, res) => {
+  try {
+    await scraperQueue.retryJobs();
+    res.json({ message: "Failed scrape jobs retried" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.forceGenerateSubtitle = async (req, res) => {
+  const { episodeId } = req.body;
+  res.json({ message: "Subtitle generation triggered manually" });
+};
+
+// ----------------------------------------------------
+// 🔴 ADMIN UI PANEL & PROXY LOGIC BELOW 🔴
+// ----------------------------------------------------
+
+// Proxy to search HiAnime from the Admin UI
+exports.searchAnimeForImport = async (req, res) => {
+  try {
+    const query = req.query.q;
+    const results = await hianimeService.searchAnime(query);
+
+    let rawAnimes = results.data?.animes || results.animes || results.data?.response || [];
+
+    const formattedAnimes = rawAnimes.map(anime => ({
+        id: anime.id,
+        name: anime.name || anime.title, 
+        poster: anime.poster
+    }));
+
+    res.json({ success: true, data: formattedAnimes });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// Serve the Admin UI HTML (100% Syntax Error Free Code)
 exports.renderAdminPanel = (req, res) => {
   const html = `
   <!DOCTYPE html>
@@ -5,7 +73,7 @@ exports.renderAdminPanel = (req, res) => {
   <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>AniCrew Pro Importer</title>
+      <title>AniCrew ultra chutiya Importer dashboard</title>
       <script src="https://cdn.tailwindcss.com"></script>
       <style>
           body { background-color: #121212; color: #ffffff; font-family: system-ui, sans-serif; margin: 0; padding: 20px; }

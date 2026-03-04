@@ -5,7 +5,6 @@ const { connection } = require('../config/redis.config');
 const { QUEUES } = require('../config/constants');
 const hianimeService = require('../services/hianime.service');
 
-
 // Queues init
 const scraperQueue = new Queue(QUEUES.SCRAPER, { connection });
 const subtitleQueue = new Queue(QUEUES.SUBTITLE, { connection });
@@ -15,20 +14,16 @@ try {
 const totalSeries = await Series.countDocuments();
 const totalEpisodes = await Episode.countDocuments();
 const episodesWithAudio = await Episode.countDocuments({ hasAudio: true });
-// Get Queue Counts (Real-time monitoring)
 const pendingScrapes = await scraperQueue.getWaitingCount();
-
 
 res.json({
 overview: { totalSeries, totalEpisodes, episodesWithAudio },
 queues: { pendingScrapes }
 });
-
 } catch (error) {
 res.status(500).json({ error: error.message });
 }
 };
-
 
 exports.retryJob = async (req, res) => {
 try {
@@ -48,19 +43,26 @@ res.json({ message: "Subtitle generation triggered manually" });
 // 🔴 ADMIN UI PANEL & PROXY LOGIC BELOW 🔴
 // ----------------------------------------------------
 
-// Proxy to search HiAnime from the Admin UI
 exports.searchAnimeForImport = async (req, res) => {
 try {
 const query = req.query.q;
 const results = await hianimeService.searchAnime(query);
-const animes = results.data?.animes || results.animes || [];
-res.json({ success: true, data: animes });
+
+let rawAnimes = results.data?.animes || results.animes || results.data?.response || [];
+
+const formattedAnimes = rawAnimes.map(anime => ({
+    id: anime.id,
+    name: anime.name || anime.title, 
+    poster: anime.poster
+}));
+
+res.json({ success: true, data: formattedAnimes });
 } catch (error) {
 res.status(500).json({ success: false, error: error.message });
 }
 };
 
-// Serve the Admin UI HTML
+// Serve the Admin UI HTML (100% Syntax Error Free Code)
 exports.renderAdminPanel = (req, res) => {
   const html = `
   <!DOCTYPE html>
@@ -90,79 +92,95 @@ exports.renderAdminPanel = (req, res) => {
           <p style="color: #aaa; margin-bottom: 20px;">Downloads videos to Premium Drive & Syncs with Vercel.</p>
 
           <div style="display: flex; gap: 10px;">
-              <input type="text" id="searchInput" class="input-box" placeholder="Anime Name (e.g. Naruto)">
+              <input type="text" id="searchInput" class="input-box" placeholder="Anime Name (e.g. Naruto)" onkeydown="if(event.key === 'Enter'){ searchAnime(); }">
               <button onclick="searchAnime()" class="btn btn-red" style="height: 45px;">Search</button>
           </div>
-
 
       <div id="statusBox" class="error-text"></div>
       <div id="resultsGrid" class="grid"></div>
   </div>
 
-
   <script>
-      const urlParams = new URLSearchParams(window.location.search);
-      const apiKey = urlParams.get('apiKey') || '';
-      const authQuery = apiKey ? \`&apiKey=\${apiKey}\` : '';
-      const statusBox = document.getElementById('statusBox');
+      // 🛠️ NO BACKTICKS HERE: Completely safe from Node.js template crash
+      var urlParams = new URLSearchParams(window.location.search);
+      var apiKey = urlParams.get('apiKey') || '';
+      var authQuery = apiKey ? '&apiKey=' + apiKey : '';
+      var statusBox = document.getElementById('statusBox');
 
       async function searchAnime() {
-          const query = document.getElementById('searchInput').value;
+          var query = document.getElementById('searchInput').value;
           if(!query) return;
+          
           statusBox.innerHTML = '<span style="color: #facc15;">⏳ Scanning Databases...</span>';
           document.getElementById('resultsGrid').innerHTML = '';
+          
           try {
-              const res = await fetch(\`/api/admin/search?q=\${encodeURIComponent(query)}\${authQuery}\`);
-              const json = await res.json();
+              var url = '/api/admin/search?q=' + encodeURIComponent(query) + authQuery;
+              var res = await fetch(url);
+              var json = await res.json();
+              
               if(res.ok && json.success) {
                   statusBox.innerHTML = '';
                   renderResults(json.data);
               } else {
                   statusBox.innerText = '❌ Error: ' + (json.message || 'API rejected. Missing API Key?');
               }
-          } catch(e) { statusBox.innerText = '❌ Critical Error: ' + e.message; }
+          } catch(e) { 
+              statusBox.innerText = '❌ Critical Error: ' + e.message; 
+          }
       }
-
 
       function renderResults(animes) {
-          const grid = document.getElementById('resultsGrid');
-          grid.innerHTML = animes.map(anime => \`
-              <div class="card">
-                  <img src="\${anime.poster}" alt="Poster">
-                  <h3 style="font-size: 14px; margin-bottom: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">\${anime.name}</h3>
-                  <input type="number" id="season-\${anime.id}" value="1" class="input-box" style="padding: 5px; margin-bottom: 10px;" placeholder="Season">
-                  <div>
-                      <button onclick="importData(this, '\${anime.id}', '\${anime.name.replace(/'/g, "\\\\'")}', 'tpx')" class="btn btn-blue" style="font-size: 12px;">📥 Import TPX (Sub)</button>
-                      <button onclick="importData(this, '\${anime.id}', '\${anime.name.replace(/'/g, "\\\\'")}', 'desidub')" class="btn btn-green" style="font-size: 12px;">📥 Import DesiDub (Dub)</button>
-                  </div>
-                  <div id="log-\${anime.id}" style="font-size: 11px; margin-top: 8px; color: #facc15;"></div>
-              </div>
-          \`).join('');
+          var grid = document.getElementById('resultsGrid');
+          var htmlString = '';
+          
+          for(var i = 0; i < animes.length; i++) {
+              var anime = animes[i];
+              var safeName = anime.name ? anime.name.replace(/'/g, "") : "Unknown";
+              
+              htmlString += '<div class="card">';
+              htmlString += '<img src="' + anime.poster + '" alt="Poster">';
+              htmlString += '<h3 style="font-size: 14px; margin-bottom: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + anime.name + '</h3>';
+              htmlString += '<input type="number" id="season-' + anime.id + '" value="1" class="input-box" style="padding: 5px; margin-bottom: 10px;" placeholder="Season">';
+              htmlString += '<div>';
+              htmlString += '<button onclick="importData(this, \\'' + anime.id + '\\', \\'' + safeName + '\\', \\'tpx\\')" class="btn btn-blue" style="font-size: 12px;">📥 Import TPX (Sub)</button>';
+              htmlString += '<button onclick="importData(this, \\'' + anime.id + '\\', \\'' + safeName + '\\', \\'desidub\\')" class="btn btn-green" style="font-size: 12px;">📥 Import DesiDub (Dub)</button>';
+              htmlString += '</div>';
+              htmlString += '<div id="log-' + anime.id + '" style="font-size: 11px; margin-top: 8px; color: #facc15;"></div>';
+              htmlString += '</div>';
+          }
+          grid.innerHTML = htmlString;
       }
 
-
       async function importData(btnElement, hianimeId, animeName, sourceType) {
-          const season = document.getElementById(\`season-\${hianimeId}\`).value || 1;
-          const logBox = document.getElementById(\`log-\${hianimeId}\`);
-          btnElement.disabled = true; btnElement.style.opacity = '0.5';
+          var season = document.getElementById('season-' + hianimeId).value || 1;
+          var logBox = document.getElementById('log-' + hianimeId);
+          
+          btnElement.disabled = true; 
+          btnElement.style.opacity = '0.5';
           logBox.innerText = '⚙️ Queuing ' + sourceType.toUpperCase() + '...';
+          
           try {
-              const res = await fetch(\`/api/extract/start?apiKey=\${apiKey}\`, {
+              var res = await fetch('/api/extract/start?apiKey=' + apiKey, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ hianimeId, animeName, season: parseInt(season), sourceType })
+                  body: JSON.stringify({ hianimeId: hianimeId, animeName: animeName, season: parseInt(season), sourceType: sourceType })
               });
-              const data = await res.json();
+              var data = await res.json();
               if(res.ok && data.success) {
-                  logBox.style.color = '#4ade80'; logBox.innerText = '✅ ' + (data.message || 'Queued!');
-              } else { throw new Error(data.message || 'Import failed'); }
+                  logBox.style.color = '#4ade80'; 
+                  logBox.innerText = '✅ ' + (data.message || 'Queued!');
+              } else { 
+                  throw new Error(data.message || 'Import failed'); 
+              }
           } catch(e) {
-              logBox.style.color = '#ef4444'; logBox.innerText = '❌ ' + e.message;
-              btnElement.disabled = false; btnElement.style.opacity = '1';
+              logBox.style.color = '#ef4444'; 
+              logBox.innerText = '❌ ' + e.message;
+              btnElement.disabled = false; 
+              btnElement.style.opacity = '1';
           }
       }
   </script>
-
 </body>
 </html>
 `;

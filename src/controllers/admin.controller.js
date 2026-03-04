@@ -14,7 +14,6 @@ exports.getDashboardStats = async (req, res) => {
     const totalSeries = await Series.countDocuments();
     const totalEpisodes = await Episode.countDocuments();
     const episodesWithAudio = await Episode.countDocuments({ hasAudio: true });
-    // Get Queue Counts (Real-time monitoring)
     const pendingScrapes = await scraperQueue.getWaitingCount();
 
     res.json({
@@ -45,7 +44,6 @@ exports.forceGenerateSubtitle = async (req, res) => {
 // 🔴 ADMIN UI PANEL & PROXY LOGIC BELOW 🔴
 // ----------------------------------------------------
 
-// Proxy to search HiAnime from the Admin UI
 exports.searchAnimeForImport = async (req, res) => {
   try {
     const query = req.query.q;
@@ -65,7 +63,7 @@ exports.searchAnimeForImport = async (req, res) => {
   }
 };
 
-// Serve the Admin UI HTML (100% Syntax Error Free Code)
+// Serve the Admin UI HTML (100% Mobile Safe + Popups)
 exports.renderAdminPanel = (req, res) => {
   const html = `
   <!DOCTYPE html>
@@ -73,7 +71,7 @@ exports.renderAdminPanel = (req, res) => {
   <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>AniCrew ultra chutiya Importer dashboard</title>
+      <title>AniCrew Pro Importer</title>
       <script src="https://cdn.tailwindcss.com"></script>
       <style>
           body { background-color: #121212; color: #ffffff; font-family: system-ui, sans-serif; margin: 0; padding: 20px; }
@@ -91,8 +89,8 @@ exports.renderAdminPanel = (req, res) => {
           <p style="color: #aaa; margin-bottom: 20px;">Downloads videos to Premium Drive & Syncs with Vercel.</p>
 
           <div style="display: flex; gap: 10px;">
-              <input type="text" id="searchInput" class="input-box" placeholder="Anime Name (e.g. Naruto)">
-              <button id="searchBtn" class="btn btn-red" style="height: 45px;">Search</button>
+              <input type="text" id="searchInput" class="input-box" placeholder="Anime Name (e.g. Naruto)" onkeydown="if(event.key === 'Enter'){ performSearch(); }">
+              <button id="searchBtn" class="btn btn-red" style="height: 45px;" onclick="performSearch()">Search</button>
           </div>
 
           <div id="statusBox" style="color: #ef4444; font-weight: bold; margin-top: 10px;"></div>
@@ -100,96 +98,93 @@ exports.renderAdminPanel = (req, res) => {
       </div>
 
   <script>
-      // DOM Elements
-      const searchBtn = document.getElementById('searchBtn');
-      const searchInput = document.getElementById('searchInput');
-      const statusBox = document.getElementById('statusBox');
-      const resultsGrid = document.getElementById('resultsGrid');
-      
-      const urlParams = new URLSearchParams(window.location.search);
-      const apiKey = urlParams.get('apiKey') || '';
+      // 🚨 MOBILE ALERT: Page load hotey hi popup aayega
+      setTimeout(() => alert("✅ Panel Ready! Cache Clear Hai!"), 500);
 
-      // Event Listeners (Safe from Node.js template literals)
-      searchBtn.addEventListener('click', performSearch);
-      searchInput.addEventListener('keypress', (e) => { if(e.key === 'Enter') performSearch(); });
+      var urlParams = new URLSearchParams(window.location.search);
+      var apiKey = urlParams.get('apiKey') || '';
 
       async function performSearch() {
-          const query = searchInput.value.trim();
-          if(!query) return;
+          var searchInput = document.getElementById('searchInput');
+          var statusBox = document.getElementById('statusBox');
+          var resultsGrid = document.getElementById('resultsGrid');
+          
+          var query = searchInput.value.trim();
+          
+          if(!query) {
+              alert("⚠️ Bhai pehle Anime ka naam toh likh!");
+              return;
+          }
           
           statusBox.innerHTML = '<span style="color: #facc15;">⏳ Scanning Databases...</span>';
           resultsGrid.innerHTML = '';
           
           try {
-              const res = await fetch('/api/admin/search?q=' + encodeURIComponent(query) + '&apiKey=' + apiKey);
-              const json = await res.json();
+              var res = await fetch('/api/admin/search?q=' + encodeURIComponent(query) + '&apiKey=' + apiKey);
+              var json = await res.json();
               
               if(res.ok && json.success) {
                   statusBox.innerHTML = '<span style="color: #4ade80;">✅ Fetched ' + json.data.length + ' results</span>';
                   renderCards(json.data);
               } else {
-                  statusBox.innerText = '❌ Error: ' + (json.message || 'API failed');
+                  var errorMsg = json.message || 'Unknown API Error';
+                  statusBox.innerHTML = '❌ Error: ' + errorMsg;
+                  alert("❌ API Error: " + errorMsg);
               }
           } catch(e) { 
-              statusBox.innerText = '❌ Critical Error: ' + e.message; 
+              statusBox.innerHTML = '❌ Critical Error: ' + e.message; 
+              alert("❌ Code Phat Gaya: " + e.message);
           }
       }
 
       function renderCards(animes) {
-          animes.forEach(anime => {
-              const safeName = anime.name ? anime.name.replace(/'/g, "") : "Unknown";
-              
-              const card = document.createElement('div');
-              card.className = 'card';
-              
-              card.innerHTML = 
-                  '<img src="' + anime.poster + '" alt="Poster">' +
-                  '<h3 style="font-size: 14px; margin-bottom: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + anime.name + '</h3>' +
-                  '<input type="number" id="season-' + anime.id + '" value="1" class="input-box" style="padding: 5px; margin-bottom: 10px;" placeholder="Season">' +
-                  '<button data-id="' + anime.id + '" data-name="' + safeName + '" data-type="tpx" class="btn import-btn" style="background: #2563eb; color: white; width: 100%; margin-bottom: 5px; font-size: 12px;">📥 Import TPX (Sub)</button>' +
-                  '<button data-id="' + anime.id + '" data-name="' + safeName + '" data-type="desidub" class="btn import-btn" style="background: #16a34a; color: white; width: 100%; font-size: 12px;">📥 Import DesiDub (Dub)</button>' +
-                  '<div id="log-' + anime.id + '" style="font-size: 11px; margin-top: 8px; color: #facc15;"></div>';
-              
-              resultsGrid.appendChild(card);
-          });
+          var resultsGrid = document.getElementById('resultsGrid');
+          var htmlStr = "";
 
-          // Attach listeners dynamically to avoid inline JS issues
-          document.querySelectorAll('.import-btn').forEach(btn => {
-              btn.addEventListener('click', async (e) => {
-                  const target = e.target;
-                  const id = target.getAttribute('data-id');
-                  const name = target.getAttribute('data-name');
-                  const type = target.getAttribute('data-type');
-                  
-                  const season = document.getElementById('season-' + id).value || 1;
-                  const logBox = document.getElementById('log-' + id);
-                  
-                  target.disabled = true;
-                  target.style.opacity = '0.5';
-                  logBox.innerText = '⚙️ Queuing ' + type.toUpperCase() + '...';
-                  
-                  try {
-                      const res = await fetch('/api/extract/start?apiKey=' + apiKey, {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ hianimeId: id, animeName: name, season: parseInt(season), sourceType: type })
-                      });
-                      const data = await res.json();
-                      
-                      if(res.ok && data.success) {
-                          logBox.style.color = '#4ade80'; 
-                          logBox.innerText = '✅ Queued!';
-                      } else { 
-                          throw new Error(data.message || 'Import failed'); 
-                      }
-                  } catch(err) {
-                      logBox.style.color = '#ef4444'; 
-                      logBox.innerText = '❌ ' + err.message;
-                      target.disabled = false;
-                      target.style.opacity = '1';
-                  }
+          for (var i = 0; i < animes.length; i++) {
+              var anime = animes[i];
+              var safeName = anime.name ? anime.name.replace(/'/g, "") : "Unknown";
+              
+              htmlStr += '<div class="card">';
+              htmlStr += '<img src="' + anime.poster + '" alt="Poster">';
+              htmlStr += '<h3 style="font-size: 14px; margin-bottom: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + anime.name + '</h3>';
+              htmlStr += '<input type="number" id="season-' + anime.id + '" value="1" class="input-box" style="padding: 5px; margin-bottom: 10px;" placeholder="Season">';
+              htmlStr += '<button onclick="importData(this, \\'' + anime.id + '\\', \\'' + safeName + '\\', \\'tpx\\')" class="btn import-btn" style="background: #2563eb; color: white; width: 100%; margin-bottom: 5px; font-size: 12px;">📥 Import TPX (Sub)</button>';
+              htmlStr += '<button onclick="importData(this, \\'' + anime.id + '\\', \\'' + safeName + '\\', \\'desidub\\')" class="btn import-btn" style="background: #16a34a; color: white; width: 100%; font-size: 12px;">📥 Import DesiDub (Dub)</button>';
+              htmlStr += '<div id="log-' + anime.id + '" style="font-size: 11px; margin-top: 8px; color: #facc15;"></div>';
+              htmlStr += '</div>';
+          }
+          resultsGrid.innerHTML = htmlStr;
+      }
+
+      async function importData(btnElement, hianimeId, animeName, sourceType) {
+          var season = document.getElementById('season-' + hianimeId).value || 1;
+          var logBox = document.getElementById('log-' + hianimeId);
+          
+          btnElement.disabled = true;
+          btnElement.style.opacity = '0.5';
+          logBox.innerText = '⚙️ Queuing ' + sourceType.toUpperCase() + '...';
+          
+          try {
+              var res = await fetch('/api/extract/start?apiKey=' + apiKey, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ hianimeId: hianimeId, animeName: animeName, season: parseInt(season), sourceType: sourceType })
               });
-          });
+              var data = await res.json();
+              
+              if(res.ok && data.success) {
+                  logBox.style.color = '#4ade80'; 
+                  logBox.innerText = '✅ Queued!';
+              } else { 
+                  throw new Error(data.message || 'Import failed'); 
+              }
+          } catch(err) {
+              logBox.style.color = '#ef4444'; 
+              logBox.innerText = '❌ ' + err.message;
+              btnElement.disabled = false;
+              btnElement.style.opacity = '1';
+          }
       }
   </script>
   </body>

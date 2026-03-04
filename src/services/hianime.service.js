@@ -3,48 +3,17 @@ const logger = require('../utils/logger');
 
 class HiAnimeService {
   constructor() {
-    // Teri OLD Render API + /api/v1
-    const domain = process.env.HIANIME_API_URL || 'https://hianimeapi-1vww.onrender.com';
-    this.baseUrl = `${domain}/api/v1`;
-
-    // 🚀 Server ko jagaye rakhne wali motor chalu kar di
-    this.startKeepAlive();
-  }
-
-  /**
-   * Anti-Sleep / Keep-Alive Motor
-   */
-  startKeepAlive() {
-    // Har 5 minute (300,000 milliseconds) me ek request bhejega
-    setInterval(async () => {
-      try {
-        // '/home' endpoint par halki si request bhejte hain API ko jagane ke liye
-        await axios.get(`${this.baseUrl}/home`);
-        logger.info('🟢 HiAnime API Keep-Alive Ping: Server is awake!');
-      } catch (error) {
-        logger.error(`🔴 HiAnime API Keep-Alive Ping Failed: ${error.message}`);
-      }
-    }, 5 * 60 * 1000); // 5 mins in milliseconds
+    this.baseUrl = process.env.HIANIME_API_URL || 'https://hianime-api-seven-teal.vercel.app';
   }
 
   /**
    * Anime search by name
+   * @param {string} query
    */
   async searchAnime(query) {
     try {
-      const { data } = await axios.get(`${this.baseUrl}/search?keyword=${encodeURIComponent(query)}`);
-      
-      // UI ke hisaab se data format karna
-      let animesList = [];
-      if (data && data.data && data.data.response) {
-         animesList = data.data.response.map(item => ({
-             id: item.id,
-             name: item.title,  
-             poster: item.poster
-         }));
-      }
-      return { animes: animesList }; 
-
+      const { data } = await axios.get(`${this.baseUrl}/api/v2/hianime/search?q=${encodeURIComponent(query)}`);
+      return data;
     } catch (error) {
       logger.error(`HiAnime Search Error: ${error.message}`);
       throw error;
@@ -53,10 +22,11 @@ class HiAnimeService {
 
   /**
    * Get Episode List
+   * @param {string} animeId
    */
   async getEpisodes(animeId) {
     try {
-      const { data } = await axios.get(`${this.baseUrl}/episodes/${animeId}`);
+      const { data } = await axios.get(`${this.baseUrl}/api/v2/hianime/anime/${animeId}/episodes`);
       return data;
     } catch (error) {
       logger.error(`HiAnime Episode List Error: ${error.message}`);
@@ -66,10 +36,11 @@ class HiAnimeService {
 
   /**
    * Get Streaming Links (M3U8)
+   * @param {string} episodeId
    */
   async getEpisodeSources(episodeId) {
     try {
-      const { data } = await axios.get(`${this.baseUrl}/stream?id=${episodeId}`);
+      const { data } = await axios.get(`${this.baseUrl}/api/v2/hianime/episode/sources?animeEpisodeId=${episodeId}`);
       return data;
     } catch (error) {
       logger.error(`HiAnime Source Error: ${error.message}`);

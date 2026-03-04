@@ -5,6 +5,7 @@ const { connection } = require('../config/redis.config');
 const { QUEUES } = require('../config/constants');
 const hianimeService = require('../services/hianime.service');
 
+
 // Queues init
 const scraperQueue = new Queue(QUEUES.SCRAPER, { connection });
 const subtitleQueue = new Queue(QUEUES.SUBTITLE, { connection });
@@ -17,6 +18,7 @@ const episodesWithAudio = await Episode.countDocuments({ hasAudio: true });
 // Get Queue Counts (Real-time monitoring)
 const pendingScrapes = await scraperQueue.getWaitingCount();
 
+
 res.json({
 overview: { totalSeries, totalEpisodes, episodesWithAudio },
 queues: { pendingScrapes }
@@ -26,6 +28,7 @@ queues: { pendingScrapes }
 res.status(500).json({ error: error.message });
 }
 };
+
 
 exports.retryJob = async (req, res) => {
 try {
@@ -50,18 +53,8 @@ exports.searchAnimeForImport = async (req, res) => {
 try {
 const query = req.query.q;
 const results = await hianimeService.searchAnime(query);
-
-// 🛠️ UNIVERSAL FIX: API 'animes' bheje ya 'response', dono pakad lega
-let rawAnimes = results.data?.animes || results.animes || results.data?.response || [];
-
-// 🛠️ TRANSLATION: API 'title' bheje ya 'name', UI ko hamesha 'name' hi milega
-const formattedAnimes = rawAnimes.map(anime => ({
-    id: anime.id,
-    name: anime.name || anime.title, // Agar title aaya toh usko name bana dega
-    poster: anime.poster
-}));
-
-res.json({ success: true, data: formattedAnimes });
+const animes = results.data?.animes || results.animes || [];
+res.json({ success: true, data: animes });
 } catch (error) {
 res.status(500).json({ success: false, error: error.message });
 }
@@ -101,9 +94,11 @@ exports.renderAdminPanel = (req, res) => {
               <button onclick="searchAnime()" class="btn btn-red" style="height: 45px;">Search</button>
           </div>
 
+
       <div id="statusBox" class="error-text"></div>
       <div id="resultsGrid" class="grid"></div>
   </div>
+
 
   <script>
       const urlParams = new URLSearchParams(window.location.search);
@@ -128,6 +123,7 @@ exports.renderAdminPanel = (req, res) => {
           } catch(e) { statusBox.innerText = '❌ Critical Error: ' + e.message; }
       }
 
+
       function renderResults(animes) {
           const grid = document.getElementById('resultsGrid');
           grid.innerHTML = animes.map(anime => \`
@@ -143,6 +139,7 @@ exports.renderAdminPanel = (req, res) => {
               </div>
           \`).join('');
       }
+
 
       async function importData(btnElement, hianimeId, animeName, sourceType) {
           const season = document.getElementById(\`season-\${hianimeId}\`).value || 1;
@@ -165,6 +162,7 @@ exports.renderAdminPanel = (req, res) => {
           }
       }
   </script>
+
 </body>
 </html>
 `;

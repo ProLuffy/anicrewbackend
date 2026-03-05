@@ -1,21 +1,22 @@
 const { chromium } = require('playwright-extra');
-const stealth = require('puppeteer-extra-plugin-stealth');
-const logger = require('../utils/logger');
+const stealthPlugin = require('puppeteer-extra-plugin-stealth');
 
-// Playwright ko stealth plugin add karna
-chromium.use(stealth());
+// Stealth plugin takki website block na kare
+chromium.use(stealthPlugin());
 
-const launchBrowser = async () => {
-  return await chromium.launch({
-    headless: process.env.HEADLESS_MODE === 'true', // .env se control
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-accelerated-2d-canvas',
-      '--disable-gpu'
-    ]
-  });
-};
+async function launchBrowser() {
+    return await chromium.launch({
+        headless: true, // 🚨 THE FIX: VPS ke liye yeh 'true' hona zaroori hai!
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--disable-gpu',
+            '--disable-software-rasterizer',
+            '--window-size=1920,1080'
+        ]
+    });
+}
 
 module.exports = { launchBrowser };

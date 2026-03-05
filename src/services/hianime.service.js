@@ -3,7 +3,6 @@ const logger = require('../utils/logger');
 
 class HiAnimeService {
   constructor() {
-    // API Base URL
     const domain = process.env.HIANIME_API_URL || 'https://hianimeapi-1vww.onrender.com';
     this.baseUrl = `${domain}/api/v1`;
   }
@@ -28,40 +27,32 @@ class HiAnimeService {
   }
 
   async getEpisodes(animeId) {
-    // 🧠 MULTI-PATH FALLBACK ENGINE: Koi na koi rasta chalega hi!
-    const urlsToTry = [
-      `${this.baseUrl}/episodes/${animeId}`,
-      `${this.baseUrl}/anime/${animeId}/episodes`,
-      `https://hianime-api-seven-teal.vercel.app/api/v2/hianime/anime/${animeId}/episodes`
-    ];
-
-    let lastError = null;
-
-    for (const url of urlsToTry) {
-      try {
-        const { data } = await axios.get(url);
-        
-        let eps = [];
-        if (data && data.data && data.data.episodes) eps = data.data.episodes;
-        else if (data && data.episodes) eps = data.episodes;
-        else eps = data;
-
-        // 🛠️ Ensure perfect format for your controller
-        if (Array.isArray(eps)) {
-            return eps.map((ep, i) => ({
-                id: ep.id || ep.episodeId || ep.episode_id,
-                episodeNumber: ep.number || ep.episodeNumber || ep.episode_no || (i + 1)
-            }));
-        }
-      } catch (error) {
-        lastError = error;
-        continue; // Error aaya? Doosra rasta try karo!
+    try {
+      // 🚀 EXACT wahi rasta jo tune abhi confirm kiya hai!
+      const { data } = await axios.get(`${this.baseUrl}/episodes/${animeId}`);
+      
+      let eps = [];
+      
+      // 🧠 SMART PARSER: Nayi API ka data nikalne ka sahi tarika
+      if (data && Array.isArray(data.data)) {
+          eps = data.data; // Nayi Render API
+      } else if (data && data.data && Array.isArray(data.data.episodes)) {
+          eps = data.data.episodes; // Purani API fallback
       }
+
+      if (eps.length > 0) {
+          // Controller ko jis format mein chahiye, waise bhej rahe hain
+          return eps.map((ep, i) => ({
+              id: ep.id || ep.episodeId || ep.episode_id,
+              episodeNumber: ep.number || ep.episodeNumber || ep.episode_no || (i + 1)
+          }));
+      }
+      
+      throw new Error("Episodes array khali hai ya format match nahi hua!");
+    } catch (error) {
+      logger.error(`HiAnime Episode List Error: ${error.message}`);
+      throw error;
     }
-    
-    // Agar sab fail ho gaye
-    logger.error(`🔴 All HiAnime Episode URLs Failed! Last Error: ${lastError.message}`);
-    throw new Error(`Episodes API is returning 404 for ${animeId}`);
   }
 
   async getEpisodeSources(episodeId) {

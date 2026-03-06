@@ -28,37 +28,68 @@ const getTPXVideo = async (animeName, episodeNumber, season = 1) => {
                 }
             }
         };
-
         page.on('response', sniffResponse);
 
-        // 1️⃣ Website URL Generator (The Fix for URL Format)
-        let slug = animeName.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-');
+        // ==========================================
+        // 1️⃣ SEARCH ENGINE: TPX par Search karke post dhoondho
+        // ==========================================
+        const searchQuery = encodeURIComponent(animeName);
+        const searchUrl = `https://www.tpxsub.com/?s=${searchQuery}`;
+        logger.info(`🔍 Searching TPX website for: ${animeName} (Episode ${episodeNumber})`);
         
-        // Agar solo leveling jaisa koi naam hai jisme override nahi chahiye, toh exact naam use hoga
-        // Episode number ko 2 digits mein convert karna (e.g., 1 -> 01, 10 -> 10)
-        let paddedEp = episodeNumber.toString().padStart(2, '0');
+        await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
         
-        // Asli TPX URL format: /solo-leveling-hindi-sub-01/
-        const episodeUrl = `https://www.tpxsub.com/${slug}-hindi-sub-${paddedEp}/`;
-        
-        logger.info(`🎯 Target TPX: ${episodeUrl}`);
-        await page.goto(episodeUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-        await page.waitForTimeout(4000);
+        const targetPostUrl = await page.evaluate(({ anime, ep }) => {
+            const links = Array.from(document.querySelectorAll('h2 a, h3 a, .post-title a, article a'));
+            
+            let exactMatch = links.find(a => {
+                const txt = a.innerText.toLowerCase();
+                return txt.includes(anime.toLowerCase()) && 
+                       (txt.includes(`episode ${ep}`) || txt.includes(`ep ${ep}`) || txt.includes(`e${ep}`) || txt.includes(`-${ep}-`) || txt.includes(`0${ep}`));
+            });
+            if (exactMatch) return exactMatch.href;
+            
+            let generalMatch = links.find(a => a.innerText.toLowerCase().includes(anime.toLowerCase()));
+            return generalMatch ? generalMatch.href : null;
+        }, { anime: animeName, ep: episodeNumber });
 
-        // 2️⃣ SERVER SELECT KARO (Regex syntax fixed)
-        logger.info('🔍 Server dhoondh rahe hain (Theta/Mega/Mirror/PL)...');
-        const serverBtn = page.locator('text=/Theta|Mega|Mirror|PL/i').first();
+        if (!targetPostUrl) throw new Error(`❌ Search Failed: TPX par "${animeName}" Episode ${episodeNumber} nahi mila!`);
+
+        logger.info(`🎯 Page Found via Search: ${targetPostUrl}`);
+        await page.goto(targetPostUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        await page.waitForTimeout(3000); 
+
+        // ==========================================
+        // 2️⃣ QUALITY: Sirf 1080p select karo
+        // ==========================================
+        logger.info('🔍 1080p Quality dhoondh rahe hain...');
+        const qualityBtn = page.locator('text=/1080p|FHD/i').first();
+        if (await qualityBtn.isVisible({ timeout: 4000 })) {
+            logger.info('🖱️ 1080p Quality Selected!');
+            await qualityBtn.click({ force: true });
+            await page.waitForTimeout(2000);
+        } else {
+            logger.warn('⚠️ 1080p button alag se nahi mila, aage badh rahe hain...');
+        }
+
+        // ==========================================
+        // 3️⃣ SERVER: Mir | PL1 | Mega | Theta 
+        // ==========================================
+        logger.info('🔍 Server (Mir/PL1/Mega/Theta) dhoondh rahe hain...');
+        const serverBtn = page.locator('text=/Mir|PL1|Mega|Theta/i').first();
         if (await serverBtn.isVisible({ timeout: 5000 })) {
-            logger.info(`🖱️ Server Button Clicked: ${await serverBtn.innerText()}`);
+            logger.info(`🖱️ Server Clicked: ${await serverBtn.innerText()}`);
             await serverBtn.click({ force: true });
             await page.waitForTimeout(3000);
         } else {
-            logger.warn('⚠️ Koi Server button nahi mila, default try kar rahe hain.');
+            logger.warn('⚠️ Server button nahi mila!');
         }
 
-        // 3️⃣ SHORTENER LINK SELECT KARO (GPLink, Cute, etc.) (Regex syntax fixed)
-        logger.info('🔍 Shortener option dhoondh rahe hain (GPLink/Cute/Download)...');
-        const shortenerBtn = page.locator('text=/gplink|cute|link|download/i').first();
+        // ==========================================
+        // 4️⃣ SHORTENER: GPLink ya Cuty
+        // ==========================================
+        logger.info('🔍 Shortener (GPLink/Cuty) dhoondh rahe hain...');
+        const shortenerBtn = page.locator('text=/gplink|cuty/i').first();
         
         let newPage;
         if (await shortenerBtn.isVisible({ timeout: 5000 })) {
@@ -69,39 +100,48 @@ const getTPXVideo = async (animeName, episodeNumber, season = 1) => {
                 shortenerBtn.click({ force: true })
             ]);
         } else {
-            throw new Error('❌ Shortener button nahi mila!');
+            throw new Error('❌ GPLink / Cuty button nahi mila!');
         }
 
-        // 4️⃣ SHORTENER BYPASS ENGINE
-        logger.info('🚀 Naya Tab Khula! Shortener Bypass Engine Start...');
+        // ==========================================
+        // 5️⃣ BYPASS ENGINE (Shortener to Download Link)
+        // ==========================================
+        logger.info('🚀 Naya Tab Khula! Redirects aur Bypass handle kar rahe hain...');
         newPage.on('response', sniffResponse);
         await newPage.waitForLoadState('domcontentloaded');
 
-        for (let i = 0; i < 7; i++) {
+        for (let i = 0; i < 12; i++) { 
             if (finalMediaUrl) break;
             
-            await newPage.waitForTimeout(5000);
+            await newPage.waitForTimeout(5000); 
             
             const currentUrl = newPage.url();
-            if (currentUrl.includes('verify.php') || currentUrl.includes('mega.nz') || currentUrl.includes('drive.google')) {
+            logger.info(`⏳ Current URL: ${currentUrl}`);
+
+            if (currentUrl.includes('mega.nz') || currentUrl.includes('drive.google') || currentUrl.includes('mirrored') || currentUrl.includes('pixeldrain') || currentUrl.includes('mediafire') || currentUrl.includes('zippyshare')) {
                 logger.info(`🔗 JACKPOT! Final Destination Reached: ${currentUrl}`);
                 finalMediaUrl = currentUrl;
                 break;
             }
 
             try {
-                // Regex syntax fixed here too
                 const bypassBtn = newPage.locator('text=/verify|continue|get link|click here|go to|skip|open/i').first();
                 if (await bypassBtn.isVisible({ timeout: 2000 })) {
-                    logger.info(`🖱️ Bypassing... Clicking '${await bypassBtn.innerText()}'`);
+                    logger.info(`🖱️ Bypassing Ad: Clicking button...`);
                     await bypassBtn.click({ force: true });
+                } else {
+                    await newPage.evaluate(() => {
+                        const btns = Array.from(document.querySelectorAll('a, button'));
+                        const btn = btns.find(b => /verify|continue|get link|click here|go to/i.test(b.innerText || b.textContent));
+                        if(btn) btn.click();
+                    });
                 }
             } catch (e) {
-                // Ignore if not found this loop
+                // Ignore loop errors
             }
         }
 
-        if (!finalMediaUrl) throw new Error('❌ Extraction Failed. Auto-bypass aakhri link nahi nikal paaya.');
+        if (!finalMediaUrl) throw new Error('❌ Bypass Timeout! (Timer lamba tha ya link nahi nikla)');
 
         return { hasHardSub: true, url: finalMediaUrl };
 

@@ -13,33 +13,34 @@ exports.resolveMirrored = async (page) => {
     if (!targetUrl) throw new Error("Mirrored: No suitable host found (PixelDrain/MediaFire)");
 
     // 2. Go to intermediate page
-    await page.goto(targetUrl);
+    await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
 
     // 3. Click the "Visit Link" / Download button
-    const clickBtn = await page.waitForSelector('.btn-download, a.btn', { timeout: 5000 });
+    const clickBtn = page.locator('.btn-download, a.btn').first();
+    await clickBtn.waitFor({ state: 'visible', timeout: 5000 });
     
-    // FIX: Do NOT wait for popup. Handle both popup and redirect.
-    await clickBtn.click();
+    // Do NOT wait for popup. Handle both popup and redirect.
+    await clickBtn.click({ force: true });
 
-    // Race condition: Either we redirected, or a new tab opened, or we are at final URL
-    await page.waitForTimeout(2000); // Brief settle
+    await page.waitForTimeout(3000); // Brief settle
 
-    // Check if we are already at PixelDrain/MediaFire
-    if (page.url().includes('pixeldrain') || page.url().includes('mediafire')) {
-        return page.url();
+    // Check if we are already at PixelDrain/MediaFire in the SAME tab
+    const currentUrl = page.url();
+    if (currentUrl.includes('pixeldrain') || currentUrl.includes('mediafire')) {
+        return currentUrl;
     }
 
-    // If it opened a tab (sometimes configured this way)
+    // If it opened a NEW tab
     const pages = page.context().pages();
     const popup = pages[pages.length - 1];
     
     if (popup && popup !== page) {
-        await popup.waitForLoadState();
+        await popup.waitForLoadState('domcontentloaded');
         return popup.url();
     }
 
     // Fallback: wait for URL change in current tab
-    await page.waitForURL(/pixeldrain|mediafire/, { timeout: 15000 });
+    await page.waitForURL(/pixeldrain|mediafire/, { timeout: 15000 }).catch(()=>{});
     return page.url();
 
   } catch (e) {

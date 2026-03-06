@@ -1,10 +1,9 @@
-const playwright = require('playwright-extra');
-const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+const { chromium } = require('playwright-extra');
+const stealthPlugin = require('puppeteer-extra-plugin-stealth');
 const logger = require('../../utils/logger');
 
-// FIX: Correct Stealth Implementation
-playwright.chromium.use(StealthPlugin());
-const { chromium } = playwright;
+// ✅ FIX: Correct Stealth Implementation for playwright-extra
+chromium.use(stealthPlugin());
 
 class TPXNavigator {
   constructor() {
@@ -13,31 +12,43 @@ class TPXNavigator {
   }
 
   async init() {
-    this.browser = await chromium.launch({ headless: true });
+    // ✅ FIX: Added VPS specific args so it doesn't crash on Ubuntu
+    this.browser = await chromium.launch({ 
+        headless: true,
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--disable-gpu'
+        ]
+    });
+    
     this.context = await this.browser.newContext({
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       viewport: { width: 1920, height: 1080 },
       ignoreHTTPSErrors: true
     });
 
-    // FIX: Expanded Whitelist (Critical for Redirects)
     const whitelist = [
-      'tpxsub', 'links.tpxsub', 'gplinks', 'gpl', // Core Chain
-      'mirrored', 'mega', 'hindisubanime', // Hosts
-      'pixeldrain', 'mediafire', 'zippyshare', // Final Destinations
-      'google', 'gstatic' // Captcha/Fonts
+      'tpxsub', 'links.tpxsub', 'gplinks', 'gpl', 
+      'mirrored', 'mega', 'hindisubanime', 
+      'pixeldrain', 'mediafire', 'zippyshare', 
+      'google', 'gstatic' 
     ];
 
     // Aggressive Popup Killer
     this.context.on('page', async (newPage) => {
-      await newPage.waitForLoadState();
-      const url = newPage.url();
-      
-      const isSafe = whitelist.some(w => url.includes(w));
-      if (!isSafe) {
-        logger.warn(`🚫 Killing Ad/Popup: ${url}`);
-        await newPage.close();
-      }
+      try {
+          await newPage.waitForLoadState('domcontentloaded');
+          const url = newPage.url();
+          
+          const isSafe = whitelist.some(w => url.includes(w));
+          if (!isSafe && url !== 'about:blank') {
+            logger.warn(`🚫 Killing Ad/Popup: ${url}`);
+            await newPage.close();
+          }
+      } catch(e) { /* ignore closed page errors */ }
     });
   }
 
@@ -49,13 +60,11 @@ class TPXNavigator {
     const page = await this.context.newPage();
     
     try {
-      await page.goto(tpxEpisodeUrl, { waitUntil: 'domcontentloaded' });
+      await page.goto(tpxEpisodeUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
 
-      // FIX: Concrete Selectors for TPX Server List
-      // TPX structure usually involves buttons with specific text or href patterns
+      // Concrete Selectors for TPX Server List
       const serverLinks = await page.evaluate(() => {
         const getLink = (text) => {
-          // Look for <a> tags containing specific server names
           const el = Array.from(document.querySelectorAll('a, button')).find(e => 
             e.innerText.toLowerCase().includes(text.toLowerCase())
           );
@@ -75,13 +84,19 @@ class TPXNavigator {
       if (!targetLink) throw new Error("TPX Scrape Error: No valid server links found in DOM");
 
       logger.info(`🔗 Starting Chain: ${targetLink}`);
-      await page.goto(targetLink);
+      
+      // ✅ Handle if targetLink is a javascript onclick instead of standard href
+      if (targetLink.includes('javascript') || targetLink.includes('window.open')) {
+          await page.evaluate((code) => eval(code), targetLink);
+      } else {
+          await page.goto(targetLink, { waitUntil: 'domcontentloaded' });
+      }
 
       // --- THE GAUNTLET --- //
 
       // 1. Main2.php Redirect
       if (page.url().includes('main2.php')) {
-        await page.waitForNavigation({ waitUntil: 'networkidle' });
+        await page.waitForNavigation({ waitUntil: 'networkidle', timeout: 30000 }).catch(()=>{});
       }
 
       // 2. GPLinks / Shortener Bypass
@@ -92,8 +107,7 @@ class TPXNavigator {
       // 3. Verify.php
       if (page.url().includes('verify.php')) {
         logger.info("🔐 Handling Verify Token...");
-        // Wait for redirect to a known host
-        await page.waitForURL(/mirrored|mega|hindisubanime|pixeldrain/, { timeout: 45000 });
+        await page.waitForURL(/mirrored|mega|hindisubanime|pixeldrain/, { timeout: 45000 }).catch(()=>{});
       }
 
       const finalUrl = page.url();
@@ -101,32 +115,28 @@ class TPXNavigator {
       return finalUrl;
 
     } catch (e) {
-      await page.close();
+      logger.error(`Resolve Chain Error: ${e.message}`);
       throw e;
+    } finally {
+      await page.close();
     }
   }
 
   async bypassGPLinks(page) {
     logger.info("💣 Bypassing GPLinks...");
-    
     try {
-      // Step 1: Wait for Timer/Verify
-      // Using generic IDs often found in GPLinks templates
       await page.waitForSelector('#timer, .timer, #verify_button', { timeout: 15000 }).catch(() => {});
       
-      // Click Verify (First Step)
       const verifyBtn = page.locator('text=/Verify/i').first();
-      if (await verifyBtn.isVisible()) await verifyBtn.click();
+      if (await verifyBtn.isVisible()) await verifyBtn.click({force: true});
 
-      await page.waitForTimeout(6000); // Wait for internal timer
+      await page.waitForTimeout(6000); 
 
-      // Step 2: Get Link (Final Step)
       const getLinkBtn = page.locator('text=/Get Link/i').first();
       
       if (await getLinkBtn.isVisible()) {
-        await getLinkBtn.click();
+        await getLinkBtn.click({force: true});
       } else {
-        // FIX: JS Fallback if button is hidden/obfuscated
         logger.info("⚠️ Button not visible, attempting JS Injection Fallback...");
         await page.evaluate(() => {
           const validLink = Array.from(document.querySelectorAll('a'))
@@ -139,10 +149,7 @@ class TPXNavigator {
           }
         });
       }
-
-      // Wait for the next stage (Verify.php)
-      await page.waitForURL(/verify\.php/, { timeout: 20000 });
-
+      await page.waitForURL(/verify\.php/, { timeout: 20000 }).catch(()=>{});
     } catch (e) {
       throw new Error(`Shortener Bypass Failed: ${e.message}`);
     }

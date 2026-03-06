@@ -8,88 +8,101 @@ const getTPXVideo = async (animeName, episodeNumber, season = 1) => {
         const context = await browser.newContext({
             viewport: { width: 1920, height: 1080 },
             userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            bypassCSP: true // Security bypass karne ke liye
+            bypassCSP: true
         });
         
         const page = await context.newPage();
-        let videoUrl = null;
+        let finalMediaUrl = null;
 
-        // 🕵️ MASTER NETWORK SNIFFER (Sab kuch pakdega)
+        // 🕵️ NETWORK SNIFFER: Agar bypass karte waqt parde ke peeche .m3u8 ya .mp4 mil jaye
         const sniffResponse = async (response) => {
             const url = response.url();
-            // Agar m3u8 ya mp4 mila aur wo ad nahi hai
-            if ((url.includes('.m3u8') || url.includes('.mp4')) && !url.includes('ad') && !url.includes('tracking')) {
-                if (url.includes('master') || url.includes('index') || url.includes('1080') || url.includes('720')) {
-                    if (!videoUrl) {
-                        videoUrl = url;
-                        logger.info(`✅ JACKPOT! Final Media Link Found: ${videoUrl}`);
+            if ((url.includes('.m3u8') || url.includes('.mp4')) && !url.includes('ad')) {
+                if (url.includes('master') || url.includes('index') || url.includes('1080')) {
+                    if (!finalMediaUrl) {
+                        finalMediaUrl = url;
+                        logger.info(`✅ Sniffed Direct Stream: ${finalMediaUrl}`);
                     }
-                } else if (!videoUrl) {
-                    videoUrl = url; // Backup link
+                } else if (!finalMediaUrl) {
+                    finalMediaUrl = url; 
                 }
             }
         };
 
-        // Current page pe network sniff karo
         page.on('response', sniffResponse);
 
-        // 🚨 ANTI-SHORTENER ENGINE: Agar shortener naye tabs (Popups) kholta hai, toh unhe bhi sniff karo!
-        context.on('page', async (newPage) => {
-            logger.info('⚠️ Shortener ne Naya Tab/Popup khola! Usey bhi sniff kar rahe hain...');
-            newPage.on('response', sniffResponse);
-        });
-
-        // Slug banayein
+        // 1️⃣ Website pe jao
         let slug = animeName.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-');
         if (slug === 'solo-leveling') slug = 'ore-dake-level-up-na-ken';
-
         const episodeUrl = `https://www.tpxsub.com/watch/${slug}-season-${season}-episode-${episodeNumber}`;
-        logger.info(`🎯 Target TPX Website: ${episodeUrl}`);
-
-        await page.goto(episodeUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-
-        logger.info('⏳ Checking main player first...');
-        await page.waitForTimeout(5000); 
-
-        // Agar bina shortener ke seedha player chal gaya
-        if (videoUrl) return { hasHardSub: true, url: videoUrl };
-
-        // ----------------------------------------------------------------
-        // 🚀 SHORTENER BYPASS MISSION START
-        // ----------------------------------------------------------------
-        logger.info('⚠️ Player se link nahi mila. Shortener (links.tpxsub) dhoondh rahe hain...');
         
-        // Page mein saare <a> tags scan karo aur links.tpxsub.com wala nikaalo
-        const shortenerLink = await page.evaluate(() => {
-            const links = Array.from(document.querySelectorAll('a'));
-            const target = links.find(a => a.href && a.href.includes('links.tpxsub.com'));
-            return target ? target.href : null;
-        });
+        logger.info(`🎯 Target TPX: ${episodeUrl}`);
+        await page.goto(episodeUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        await page.waitForTimeout(4000);
 
-        if (shortenerLink) {
-            logger.info(`🔗 Shortener Link Mil Gaya: ${shortenerLink}`);
-            logger.info(`🚀 Ghus rahe hain shortener ke andar... Wait karo!`);
-            
-            // Shortener link par jao
-            await page.goto(shortenerLink, { waitUntil: 'domcontentloaded', timeout: 60000 });
-            
-            // Shorteners timer lagate hain (jaise 10-15 seconds), isliye wait karna padega
-            logger.info('⏳ Waiting for Shortener countdown/redirects (20 seconds)...');
-            await page.waitForTimeout(20000); 
-
-            // Agar redirect ke baad link mil gaya
-            if (videoUrl) {
-                return { hasHardSub: true, url: videoUrl };
-            }
+        // 2️⃣ SERVER SELECT KARO (Theta, Mega, Mirror, ya PL)
+        logger.info('🔍 Server dhoondh rahe hain (Theta/Mega/Mirror/PL)...');
+        const serverBtn = page.locator('text=/(?i)(Theta|Mega|Mirror|PL)/').first();
+        if (await serverBtn.isVisible({ timeout: 5000 })) {
+            logger.info(`🖱️ Server Button Clicked: ${await serverBtn.innerText()}`);
+            await serverBtn.click({ force: true });
+            await page.waitForTimeout(3000);
         } else {
-            logger.warn('❌ Is page par koi shortener link hi nahi mila!');
+            logger.warn('⚠️ Koi Server button nahi mila, default try kar rahe hain.');
         }
 
-        if (!videoUrl) {
-            throw new Error('❌ Shortener Bypass fail ho gaya. Shayad wahan Captcha ("I am not a robot") laga hua hai!');
+        // 3️⃣ SHORTENER LINK SELECT KARO (GPLink, Cute, etc.) jo naya tab kholega
+        logger.info('🔍 Shortener option dhoondh rahe hain (GPLink/Cute)...');
+        const shortenerBtn = page.locator('text=/(?i)(gplink|cute|link|download)/').first();
+        
+        let newPage;
+        if (await shortenerBtn.isVisible({ timeout: 5000 })) {
+            logger.info(`🖱️ Shortener Clicked: ${await shortenerBtn.innerText()}`);
+            
+            // Click karte hi jo naya tab khulega usko pakdo
+            [newPage] = await Promise.all([
+                context.waitForEvent('page'),
+                shortenerBtn.click({ force: true })
+            ]);
+        } else {
+            throw new Error('❌ Shortener button nahi mila!');
         }
 
-        return { hasHardSub: true, url: videoUrl };
+        // 4️⃣ SHORTENER BYPASS ENGINE (Naye tab mein)
+        logger.info('🚀 Naya Tab Khula! Shortener Bypass Engine Start...');
+        newPage.on('response', sniffResponse);
+        await newPage.waitForLoadState('domcontentloaded');
+
+        // Shortener pe multiple clicks aur wait karna padta hai
+        for (let i = 0; i < 7; i++) {
+            if (finalMediaUrl) break; // Link mil gaya toh stop
+            
+            await newPage.waitForTimeout(5000); // 5 sec timer wait
+            
+            // Check current URL (kya hum verify.php ya mega.nz pe pohoch gaye?)
+            const currentUrl = newPage.url();
+            if (currentUrl.includes('verify.php') || currentUrl.includes('mega.nz') || currentUrl.includes('drive.google')) {
+                logger.info(`🔗 JACKPOT! Final Destination Reached: ${currentUrl}`);
+                finalMediaUrl = currentUrl;
+                break;
+            }
+
+            // Agar nahi pahuche, toh bypass buttons dhoondho aur click karo
+            try {
+                const bypassBtn = newPage.locator('text=/(?i)(verify|continue|get link|click here|go to|skip|open)/').first();
+                if (await bypassBtn.isVisible({ timeout: 2000 })) {
+                    logger.info(`🖱️ Bypassing... Clicking '${await bypassBtn.innerText()}'`);
+                    await bypassBtn.click({ force: true });
+                }
+            } catch (e) {
+                // Button nahi mila, next loop mein phir try karega
+            }
+        }
+
+        if (!finalMediaUrl) throw new Error('❌ Extraction Failed. Auto-bypass aakhri link nahi nikal paaya.');
+
+        // 5️⃣ RETURN LINK (Taaki Download Worker VPS pe download karke Drive pe daal sake)
+        return { hasHardSub: true, url: finalMediaUrl };
 
     } catch (err) {
         logger.error(`❌ TPX Scraper Error: ${err.message}`);

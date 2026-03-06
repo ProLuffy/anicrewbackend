@@ -28,7 +28,7 @@ class HiAnimeService {
 
   async getEpisodes(animeId) {
     try {
-      // 🚀 EXACT wahi rasta jo tune abhi confirm kiya hai!
+      // 🚀 Nayi Render API ka exact rasta
       const { data } = await axios.get(`${this.baseUrl}/episodes/${animeId}`);
       
       let eps = [];
@@ -41,7 +41,6 @@ class HiAnimeService {
       }
 
       if (eps.length > 0) {
-          // Controller ko jis format mein chahiye, waise bhej rahe hain
           return eps.map((ep, i) => ({
               id: ep.id || ep.episodeId || ep.episode_id,
               episodeNumber: ep.number || ep.episodeNumber || ep.episode_no || (i + 1)

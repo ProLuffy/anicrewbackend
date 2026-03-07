@@ -29,119 +29,117 @@ const getTPXVideo = async (animeName, episodeNumber, season = 1) => {
         };
         page.on('response', sniffResponse);
 
-        let slug = animeName.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-');
-        let paddedEp = episodeNumber.toString().padStart(2, '0');
-        let paddedSzn = season.toString().padStart(2, '0');
-
         // ==========================================
-        // 🚀 DUAL-ENGINE: DIRECT ATTACK FIRST
+        // 1️⃣ SEARCH & FIND MAIN ANIME PAGE
         // ==========================================
-        let targetPostUrl = null;
+        const searchQuery = encodeURIComponent(animeName);
+        const searchUrl = `https://www.tpxsub.com/?s=${searchQuery}`;
+        logger.info(`🔍 Searching TPX for Main Post: ${animeName}`);
         
-        const possibleUrls = [
-            `https://www.tpxsub.com/${slug}-s${paddedSzn}-e${paddedEp}-hindi-subbed/`,
-            `https://www.tpxsub.com/${slug}-hindi-sub-${paddedEp}/`,
-            `https://www.tpxsub.com/episode/${slug}-s${paddedSzn}-e${paddedEp}-hindi-subbed/`
-        ];
+        await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        
+        const targetPostUrl = await page.evaluate(({ anime }) => {
+            const links = Array.from(document.querySelectorAll('h2 a, h3 a, .post-title a, article a'));
+            const match = links.find(a => {
+                const txt = (a.innerText || "").toLowerCase();
+                const href = (a.href || "").toLowerCase();
+                const nameParts = anime.toLowerCase().split(' ').filter(p => p.length > 3);
+                if(nameParts.length === 0) nameParts.push(anime.toLowerCase());
 
-        logger.info(`🚀 [Engine 1] Trying Direct URL Attack...`);
-        for (let url of possibleUrls) {
-            try {
-                const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
-                const title = await page.title();
-                // Agar page mil gaya aur 404 nahi hai
-                if (response && response.status() !== 404 && !title.toLowerCase().includes('not found')) {
-                    targetPostUrl = url;
-                    logger.info(`✅ Direct Attack Success: ${targetPostUrl}`);
-                    break;
-                }
-            } catch (e) { /* ignore timeout */ }
-        }
+                const matchesName = nameParts.every(part => txt.includes(part) || href.includes(part));
+                // Ignore categories/tags, we want the actual post
+                return matchesName && !href.includes('/category/') && !href.includes('/tag/') && !href.includes('?s=');
+            });
+            return match ? match.href : null;
+        }, { anime: animeName });
 
-        // ==========================================
-        // 🔍 ENGINE 2: SEARCH FALLBACK (Agar direct fail ho jaye)
-        // ==========================================
-        if (!targetPostUrl) {
-            logger.warn(`⚠️ Direct Attack Failed. Switch to Search Engine...`);
-            const searchQuery = encodeURIComponent(animeName);
-            const searchUrl = `https://www.tpxsub.com/?s=${searchQuery}`;
-            
-            await page.goto(searchUrl, { waitUntil: 'networkidle', timeout: 60000 });
-            await page.waitForTimeout(4000); 
-            
-            targetPostUrl = await page.evaluate(({ anime, ep }) => {
-                const links = Array.from(document.querySelectorAll('a'));
-                const paddedEp = ep.toString().padStart(2, '0');
-                const paddedEpAlt = `0${ep}`;
-                
-                let exactMatch = links.find(a => {
-                    const txt = (a.innerText || "").toLowerCase();
-                    const href = (a.href || "").toLowerCase();
-                    const matchesName = anime.toLowerCase().split(' ').some(part => part.length > 3 && (txt.includes(part) || href.includes(part)));
-                    const matchesEp = txt.includes(`episode ${ep}`) || txt.includes(`ep ${ep}`) || 
-                                      href.includes(`episode-${ep}`) || href.includes(`-${paddedEp}-`) || 
-                                      href.includes(`-${paddedEpAlt}-`) || href.includes(`-e${paddedEp}-`);
+        if (!targetPostUrl) throw new Error(`❌ Search Failed: TPX par "${animeName}" ki main post nahi mili!`);
 
-                    return matchesName && matchesEp && !href.includes('/category/') && !href.includes('/tag/') && !href.includes('/author/');
-                });
-
-                if (exactMatch) return exactMatch.href;
-
-                let generalMatch = links.find(a => {
-                    const txt = (a.innerText || "").toLowerCase();
-                    const href = (a.href || "").toLowerCase();
-                    return txt.includes(anime.toLowerCase()) && !href.includes('/category/') && !href.includes('/tag/');
-                });
-
-                return generalMatch ? generalMatch.href : null;
-            }, { anime: animeName, ep: episodeNumber });
-        }
-
-        if (!targetPostUrl) throw new Error(`❌ Dual-Engine Failed: TPX par Episode ${episodeNumber} nahi mila!`);
-
-        // Load final page
+        logger.info(`🎯 Main Post Found: ${targetPostUrl}`);
         await page.goto(targetPostUrl, { waitUntil: 'load', timeout: 60000 });
-        await page.waitForTimeout(4000); 
+        await page.waitForTimeout(3000); 
 
         // ==========================================
-        // 🎯 THE GAUNTLET (1080p -> Server -> Bypass)
+        // 2️⃣ DOM PARSER: FIND EPISODE -> FHD -> SERVER LINK
         // ==========================================
-        logger.info('🔍 1080p Quality dhoondh rahe hain...');
-        const qualityBtn = page.locator('text=/1080p|FHD/i').first();
-        if (await qualityBtn.isVisible({ timeout: 4000 })) {
-            logger.info('🖱️ 1080p Quality Selected!');
-            await qualityBtn.click({ force: true });
-            await page.waitForTimeout(3000);
-        }
-
-        logger.info('🔍 Server (Mir/PL1/Mega/Theta) dhoondh rahe hain...');
-        const serverBtn = page.locator('text=/Mir|PL1|Mega|Theta/i').first();
-        if (await serverBtn.isVisible({ timeout: 5000 })) {
-            logger.info(`🖱️ Server Clicked: ${await serverBtn.innerText()}`);
-            await serverBtn.click({ force: true });
-            await page.waitForTimeout(4000);
-        } else {
-            logger.warn('⚠️ Server button nahi mila!');
-        }
-
-        logger.info('🔍 Shortener (GPLink/Cuty/Link) dhoondh rahe hain...');
-        const shortenerBtn = page.locator('text=/gplink|cuty|link|download/i').first();
+        logger.info(`🔍 Extracting server link for Episode ${episodeNumber} (FHD)...`);
         
-        let newPage;
+        const serverLinkUrl = await page.evaluate(({ ep }) => {
+            const epStr1 = `Episode ${ep.toString().padStart(2, '0')}`; // "Episode 01"
+            const epStr2 = `Episode ${ep}`; // "Episode 1"
+            const elements = Array.from(document.querySelectorAll('p, div, li, tr'));
+
+            let foundEp = false;
+            let targetLink = null;
+
+            for (let el of elements) {
+                const text = (el.innerText || '').trim();
+                
+                // Skip massive container divs to avoid false positives
+                if (text.length > 1500) continue;
+
+                if (!foundEp) {
+                    // Check if we reached our target episode heading
+                    if (new RegExp(`^Episode\\s*0?${ep}\\b`, 'i').test(text) || text.includes(epStr1) || text.includes(epStr2)) {
+                        foundEp = true;
+                    }
+                    continue;
+                }
+
+                // If we reach the NEXT episode heading, stop looking!
+                if (new RegExp(`^Episode\\s*\\d+`, 'i').test(text) && !text.includes(epStr1) && !text.includes(epStr2)) {
+                    break; 
+                }
+
+                // We are inside the correct episode block. Look for FHD/1080p line.
+                if (/FHD|1080p/i.test(text)) {
+                    const links = Array.from(el.querySelectorAll('a'));
+                    // Find Mir, PL1, Mega, or Theta link
+                    const srv = links.find(a => /Mir|PL1|Mega|Theta/i.test(a.innerText || ''));
+                    if (srv) {
+                        targetLink = srv.href;
+                        break;
+                    }
+                }
+            }
+            return targetLink;
+        }, { ep: episodeNumber });
+
+        if (!serverLinkUrl) {
+            throw new Error(`❌ Episode ${episodeNumber} ka FHD link list mein nahi mila!`);
+        }
+
+        logger.info(`🔗 Extracted Server Link: ${serverLinkUrl}`);
+
+        // ==========================================
+        // 3️⃣ GOTO SHORTENER & BYPASS
+        // ==========================================
+        logger.info(`🚀 Navigating to Redirector/Shortener...`);
+        await page.goto(serverLinkUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        await page.waitForTimeout(3000);
+
+        // Find "Skip Ads and Enjoy" or "Skip Ad v2 (GPLinks)" as seen in your screenshot
+        logger.info('🔍 Shortener (Skip Ad/GPLink/Cuty) dhoondh rahe hain...');
+        const shortenerBtn = page.locator('text=/Skip Ad|GPLink|Cuty|Download/i').first();
+        
+        let newPage = page;
         if (await shortenerBtn.isVisible({ timeout: 5000 })) {
             logger.info(`🖱️ Shortener Clicked: ${await shortenerBtn.innerText()}`);
+            const pagePromise = context.waitForEvent('page').catch(() => null);
+            await shortenerBtn.click({ force: true });
             
-            [newPage] = await Promise.all([
-                context.waitForEvent('page'),
-                shortenerBtn.click({ force: true })
-            ]);
+            const openedPage = await pagePromise;
+            if (openedPage) newPage = openedPage;
         } else {
-            throw new Error('❌ GPLink / Cuty button nahi mila!');
+            logger.warn('⚠️ Skip Ad button nahi mila. Shayad direct URL pe aa gaye hain.');
         }
 
-        logger.info('🚀 Naya Tab Khula! Redirects aur Bypass handle kar rahe hain...');
-        newPage.on('response', sniffResponse);
-        await newPage.waitForLoadState('domcontentloaded');
+        // 4️⃣ THE GAUNTLET (Bypass loop)
+        logger.info('🚀 Bypass Engine Start...');
+        if (newPage !== page) {
+            newPage.on('response', sniffResponse);
+            await newPage.waitForLoadState('domcontentloaded').catch(()=>{});
+        }
 
         for (let i = 0; i < 15; i++) { 
             if (finalMediaUrl) break;

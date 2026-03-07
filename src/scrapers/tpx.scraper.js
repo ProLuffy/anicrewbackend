@@ -14,7 +14,6 @@ const getTPXVideo = async (animeName, episodeNumber, season = 1) => {
         const page = await context.newPage();
         let finalMediaUrl = null;
 
-        // 🕵️ NETWORK SNIFFER
         const sniffResponse = async (response) => {
             const url = response.url();
             if ((url.includes('.m3u8') || url.includes('.mp4')) && !url.includes('ad')) {
@@ -30,64 +29,82 @@ const getTPXVideo = async (animeName, episodeNumber, season = 1) => {
         };
         page.on('response', sniffResponse);
 
+        let slug = animeName.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-');
+        let paddedEp = episodeNumber.toString().padStart(2, '0');
+        let paddedSzn = season.toString().padStart(2, '0');
+
         // ==========================================
-        // 1️⃣ SEARCH ENGINE (Upgraded & Patient)
+        // 🚀 DUAL-ENGINE: DIRECT ATTACK FIRST
         // ==========================================
-        const searchQuery = encodeURIComponent(animeName);
-        const searchUrl = `https://www.tpxsub.com/?s=${searchQuery}`;
-        logger.info(`🔍 Searching TPX website for: ${animeName} (Episode ${episodeNumber})`);
+        let targetPostUrl = null;
         
-        // 🚨 FIX: domcontentloaded se 'load' kar diya taaki pura page aaram se khule
-        await page.goto(searchUrl, { waitUntil: 'load', timeout: 60000 });
-        
-        // 🚨 FIX: 5 Second ka extra wait taaki search results screen par aa jayein
-        await page.waitForTimeout(5000); 
-        
-        const targetPostUrl = await page.evaluate(({ anime, ep }) => {
-            // Sab a tags nikal lo
-            const links = Array.from(document.querySelectorAll('a'));
-            const paddedEp = ep.toString().padStart(2, '0');
-            const paddedEpAlt = `0${ep}`;
+        const possibleUrls = [
+            `https://www.tpxsub.com/${slug}-s${paddedSzn}-e${paddedEp}-hindi-subbed/`,
+            `https://www.tpxsub.com/${slug}-hindi-sub-${paddedEp}/`,
+            `https://www.tpxsub.com/episode/${slug}-s${paddedSzn}-e${paddedEp}-hindi-subbed/`
+        ];
+
+        logger.info(`🚀 [Engine 1] Trying Direct URL Attack...`);
+        for (let url of possibleUrls) {
+            try {
+                const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+                const title = await page.title();
+                // Agar page mil gaya aur 404 nahi hai
+                if (response && response.status() !== 404 && !title.toLowerCase().includes('not found')) {
+                    targetPostUrl = url;
+                    logger.info(`✅ Direct Attack Success: ${targetPostUrl}`);
+                    break;
+                }
+            } catch (e) { /* ignore timeout */ }
+        }
+
+        // ==========================================
+        // 🔍 ENGINE 2: SEARCH FALLBACK (Agar direct fail ho jaye)
+        // ==========================================
+        if (!targetPostUrl) {
+            logger.warn(`⚠️ Direct Attack Failed. Switch to Search Engine...`);
+            const searchQuery = encodeURIComponent(animeName);
+            const searchUrl = `https://www.tpxsub.com/?s=${searchQuery}`;
             
-            // Priority 1: Smart Match (Check Text AND Href)
-            let exactMatch = links.find(a => {
-                const txt = (a.innerText || "").toLowerCase();
-                const href = (a.href || "").toLowerCase();
+            await page.goto(searchUrl, { waitUntil: 'networkidle', timeout: 60000 });
+            await page.waitForTimeout(4000); 
+            
+            targetPostUrl = await page.evaluate(({ anime, ep }) => {
+                const links = Array.from(document.querySelectorAll('a'));
+                const paddedEp = ep.toString().padStart(2, '0');
+                const paddedEpAlt = `0${ep}`;
                 
-                // Anime ka naam (kam se kam ek bada word match ho)
-                const nameParts = anime.toLowerCase().split(' ').filter(p => p.length > 3);
-                const matchesName = nameParts.some(part => txt.includes(part) || href.includes(part));
-                
-                // Episode number match
-                const matchesEp = txt.includes(`episode ${ep}`) || txt.includes(`ep ${ep}`) || 
-                                  href.includes(`episode-${ep}`) || href.includes(`-${paddedEp}-`) || 
-                                  href.includes(`-${paddedEpAlt}-`) || href.includes(`-e${paddedEp}-`);
+                let exactMatch = links.find(a => {
+                    const txt = (a.innerText || "").toLowerCase();
+                    const href = (a.href || "").toLowerCase();
+                    const matchesName = anime.toLowerCase().split(' ').some(part => part.length > 3 && (txt.includes(part) || href.includes(part)));
+                    const matchesEp = txt.includes(`episode ${ep}`) || txt.includes(`ep ${ep}`) || 
+                                      href.includes(`episode-${ep}`) || href.includes(`-${paddedEp}-`) || 
+                                      href.includes(`-${paddedEpAlt}-`) || href.includes(`-e${paddedEp}-`);
 
-                // Faltu links (tag, category) ko ignore karo
-                return matchesName && matchesEp && !href.includes('/category/') && !href.includes('/tag/') && !href.includes('/author/');
-            });
+                    return matchesName && matchesEp && !href.includes('/category/') && !href.includes('/tag/') && !href.includes('/author/');
+                });
 
-            if (exactMatch) return exactMatch.href;
+                if (exactMatch) return exactMatch.href;
 
-            // Priority 2: Agar single episode nahi mila, toh shayad "All Episodes" wala post ho
-            let generalMatch = links.find(a => {
-                const txt = (a.innerText || "").toLowerCase();
-                const href = (a.href || "").toLowerCase();
-                return txt.includes(anime.toLowerCase()) && !href.includes('/category/') && !href.includes('/tag/');
-            });
+                let generalMatch = links.find(a => {
+                    const txt = (a.innerText || "").toLowerCase();
+                    const href = (a.href || "").toLowerCase();
+                    return txt.includes(anime.toLowerCase()) && !href.includes('/category/') && !href.includes('/tag/');
+                });
 
-            return generalMatch ? generalMatch.href : null;
+                return generalMatch ? generalMatch.href : null;
+            }, { anime: animeName, ep: episodeNumber });
+        }
 
-        }, { anime: animeName, ep: episodeNumber });
+        if (!targetPostUrl) throw new Error(`❌ Dual-Engine Failed: TPX par Episode ${episodeNumber} nahi mila!`);
 
-        if (!targetPostUrl) throw new Error(`❌ Search Failed: TPX par "${animeName}" Episode ${episodeNumber} nahi mila!`);
-
-        logger.info(`🎯 Page Found via Search: ${targetPostUrl}`);
+        // Load final page
         await page.goto(targetPostUrl, { waitUntil: 'load', timeout: 60000 });
         await page.waitForTimeout(4000); 
 
         // ==========================================
-        // 2️⃣ QUALITY: Sirf 1080p select karo
+        // 🎯 THE GAUNTLET (1080p -> Server -> Bypass)
         // ==========================================
         logger.info('🔍 1080p Quality dhoondh rahe hain...');
         const qualityBtn = page.locator('text=/1080p|FHD/i').first();
@@ -95,13 +112,8 @@ const getTPXVideo = async (animeName, episodeNumber, season = 1) => {
             logger.info('🖱️ 1080p Quality Selected!');
             await qualityBtn.click({ force: true });
             await page.waitForTimeout(3000);
-        } else {
-            logger.warn('⚠️ 1080p button alag se nahi mila, aage badh rahe hain...');
         }
 
-        // ==========================================
-        // 3️⃣ SERVER: Mir | PL1 | Mega | Theta 
-        // ==========================================
         logger.info('🔍 Server (Mir/PL1/Mega/Theta) dhoondh rahe hain...');
         const serverBtn = page.locator('text=/Mir|PL1|Mega|Theta/i').first();
         if (await serverBtn.isVisible({ timeout: 5000 })) {
@@ -112,10 +124,7 @@ const getTPXVideo = async (animeName, episodeNumber, season = 1) => {
             logger.warn('⚠️ Server button nahi mila!');
         }
 
-        // ==========================================
-        // 4️⃣ SHORTENER: GPLink ya Cuty
-        // ==========================================
-        logger.info('🔍 Shortener (GPLink/Cuty) dhoondh rahe hain...');
+        logger.info('🔍 Shortener (GPLink/Cuty/Link) dhoondh rahe hain...');
         const shortenerBtn = page.locator('text=/gplink|cuty|link|download/i').first();
         
         let newPage;
@@ -130,9 +139,6 @@ const getTPXVideo = async (animeName, episodeNumber, season = 1) => {
             throw new Error('❌ GPLink / Cuty button nahi mila!');
         }
 
-        // ==========================================
-        // 5️⃣ BYPASS ENGINE (Shortener to Download Link)
-        // ==========================================
         logger.info('🚀 Naya Tab Khula! Redirects aur Bypass handle kar rahe hain...');
         newPage.on('response', sniffResponse);
         await newPage.waitForLoadState('domcontentloaded');
@@ -163,9 +169,7 @@ const getTPXVideo = async (animeName, episodeNumber, season = 1) => {
                         if(btn) btn.click();
                     });
                 }
-            } catch (e) {
-                // Ignore loop errors
-            }
+            } catch (e) {}
         }
 
         if (!finalMediaUrl) throw new Error('❌ Bypass Timeout! (Timer lamba tha ya link nahi nikla)');

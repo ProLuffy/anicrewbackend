@@ -36,7 +36,9 @@ const getTPXVideo = async (animeName, episodeNumber, season = 1) => {
         const searchUrl = `https://www.tpxsub.com/?s=${searchQuery}`;
         logger.info(`🔍 Searching TPX for Main Post: ${animeName}`);
         
-        await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        // 🚨 THE FIX: Wait for full page load and wait 5 seconds for JS/Cloudflare
+        await page.goto(searchUrl, { waitUntil: 'load', timeout: 60000 });
+        await page.waitForTimeout(5000); 
         
         const targetPostUrl = await page.evaluate(({ anime }) => {
             const links = Array.from(document.querySelectorAll('h2 a, h3 a, .post-title a, article a'));
@@ -47,7 +49,6 @@ const getTPXVideo = async (animeName, episodeNumber, season = 1) => {
                 if(nameParts.length === 0) nameParts.push(anime.toLowerCase());
 
                 const matchesName = nameParts.every(part => txt.includes(part) || href.includes(part));
-                // Ignore categories/tags, we want the actual post
                 return matchesName && !href.includes('/category/') && !href.includes('/tag/') && !href.includes('?s=');
             });
             return match ? match.href : null;
@@ -57,7 +58,7 @@ const getTPXVideo = async (animeName, episodeNumber, season = 1) => {
 
         logger.info(`🎯 Main Post Found: ${targetPostUrl}`);
         await page.goto(targetPostUrl, { waitUntil: 'load', timeout: 60000 });
-        await page.waitForTimeout(3000); 
+        await page.waitForTimeout(4000); 
 
         // ==========================================
         // 2️⃣ DOM PARSER: FIND EPISODE -> FHD -> SERVER LINK
@@ -65,8 +66,8 @@ const getTPXVideo = async (animeName, episodeNumber, season = 1) => {
         logger.info(`🔍 Extracting server link for Episode ${episodeNumber} (FHD)...`);
         
         const serverLinkUrl = await page.evaluate(({ ep }) => {
-            const epStr1 = `Episode ${ep.toString().padStart(2, '0')}`; // "Episode 01"
-            const epStr2 = `Episode ${ep}`; // "Episode 1"
+            const epStr1 = `Episode ${ep.toString().padStart(2, '0')}`; 
+            const epStr2 = `Episode ${ep}`; 
             const elements = Array.from(document.querySelectorAll('p, div, li, tr'));
 
             let foundEp = false;
@@ -74,27 +75,21 @@ const getTPXVideo = async (animeName, episodeNumber, season = 1) => {
 
             for (let el of elements) {
                 const text = (el.innerText || '').trim();
-                
-                // Skip massive container divs to avoid false positives
                 if (text.length > 1500) continue;
 
                 if (!foundEp) {
-                    // Check if we reached our target episode heading
                     if (new RegExp(`^Episode\\s*0?${ep}\\b`, 'i').test(text) || text.includes(epStr1) || text.includes(epStr2)) {
                         foundEp = true;
                     }
                     continue;
                 }
 
-                // If we reach the NEXT episode heading, stop looking!
                 if (new RegExp(`^Episode\\s*\\d+`, 'i').test(text) && !text.includes(epStr1) && !text.includes(epStr2)) {
                     break; 
                 }
 
-                // We are inside the correct episode block. Look for FHD/1080p line.
                 if (/FHD|1080p/i.test(text)) {
                     const links = Array.from(el.querySelectorAll('a'));
-                    // Find Mir, PL1, Mega, or Theta link
                     const srv = links.find(a => /Mir|PL1|Mega|Theta/i.test(a.innerText || ''));
                     if (srv) {
                         targetLink = srv.href;
@@ -116,9 +111,8 @@ const getTPXVideo = async (animeName, episodeNumber, season = 1) => {
         // ==========================================
         logger.info(`🚀 Navigating to Redirector/Shortener...`);
         await page.goto(serverLinkUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-        await page.waitForTimeout(3000);
+        await page.waitForTimeout(4000);
 
-        // Find "Skip Ads and Enjoy" or "Skip Ad v2 (GPLinks)" as seen in your screenshot
         logger.info('🔍 Shortener (Skip Ad/GPLink/Cuty) dhoondh rahe hain...');
         const shortenerBtn = page.locator('text=/Skip Ad|GPLink|Cuty|Download/i').first();
         
@@ -134,7 +128,9 @@ const getTPXVideo = async (animeName, episodeNumber, season = 1) => {
             logger.warn('⚠️ Skip Ad button nahi mila. Shayad direct URL pe aa gaye hain.');
         }
 
+        // ==========================================
         // 4️⃣ THE GAUNTLET (Bypass loop)
+        // ==========================================
         logger.info('🚀 Bypass Engine Start...');
         if (newPage !== page) {
             newPage.on('response', sniffResponse);

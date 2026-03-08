@@ -9,7 +9,8 @@ const Episode = require('../models/Episode.model');
 const downloadQueue = new Queue(QUEUES.DOWNLOAD, { connection });
 
 const worker = new Worker(QUEUES.SCRAPER, async (job) => {
-  let { animeName, episodeNumber, episodeId, season, sourceType } = job.data;
+  // ✅ FIX: tpxUrl ko destructure kar liya job.data se
+  let { animeName, episodeNumber, episodeId, season, sourceType, tpxUrl } = job.data;
   const targetSeason = season || 1;
 
   logger.info(`🚀 Scraper Started: ${animeName} S${targetSeason} E${episodeNumber} [Type: ${sourceType}]`);
@@ -24,8 +25,8 @@ const worker = new Worker(QUEUES.SCRAPER, async (job) => {
     if (sourceType === 'tpx') {
         logger.info(`🔍 Fetching TPX video directly from tpxsub.com...`);
         
-        // Seedha tpxsub ki website pe jayega
-        const tpxResult = await tpxScraper.getTPXVideo(animeName, episodeNumber, targetSeason);
+        // ✅ FIX: tpxUrl ko function call mein bhej diya
+        const tpxResult = await tpxScraper.getTPXVideo(animeName, episodeNumber, targetSeason, tpxUrl);
         mediaUrl = tpxResult && tpxResult.url ? tpxResult.url : null;
         type = 'video';
     } 

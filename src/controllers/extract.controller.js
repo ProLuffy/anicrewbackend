@@ -9,7 +9,8 @@ const scraperQueue = new Queue(QUEUES.SCRAPER, { connection });
 
 exports.triggerScrape = async (req, res, next) => {
   try {
-    const { animeName, hianimeId, season, sourceType } = req.body;
+    // ✅ NAYA: tpxUrl ko request body se extract kar rahe hain
+    const { animeName, hianimeId, season, sourceType, tpxUrl } = req.body;
     const targetSeason = season || 1;
 
     // 🛑 DUPLICATE CHECK
@@ -42,13 +43,14 @@ exports.triggerScrape = async (req, res, next) => {
             { upsert: true, new: true }
         );
 
-        // Job Queue: Pass Series Name for Drive Folder
+        // Job Queue: Pass Series Name & tpxUrl for Drive Folder & Scraper
         await scraperQueue.add('scrape-job', {
             animeName: series.title, 
             episodeNumber: epNum,
             episodeId: newEp._id,
             season: targetSeason,
-            sourceType: sourceType
+            sourceType: sourceType,
+            tpxUrl: tpxUrl // ✅ NAYA: Worker ko seedha Direct Link bhej rahe hain
         });
         count++;
     }

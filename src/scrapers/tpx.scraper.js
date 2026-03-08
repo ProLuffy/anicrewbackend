@@ -36,21 +36,28 @@ const getTPXVideo = async (animeName, episodeNumber, season = 1) => {
         const searchUrl = `https://www.tpxsub.com/?s=${searchQuery}`;
         logger.info(`🔍 Searching TPX for Main Post: ${animeName}`);
         
-        // 🚨 THE FIX: Wait for full page load and wait 5 seconds for JS/Cloudflare
         await page.goto(searchUrl, { waitUntil: 'load', timeout: 60000 });
-        await page.waitForTimeout(5000); 
+        
+        // Wait till articles/posts are loaded on the search page
+        try {
+             await page.waitForSelector('h2 a, h3 a, .post-title a, article a', { timeout: 10000 });
+        } catch(e) {
+             logger.warn('Search results selector not found within timeout.');
+        }
         
         const targetPostUrl = await page.evaluate(({ anime }) => {
             const links = Array.from(document.querySelectorAll('h2 a, h3 a, .post-title a, article a'));
+            const animeNameLower = anime.toLowerCase();
+
+            // Direct match - find any link where the text includes the anime name
             const match = links.find(a => {
                 const txt = (a.innerText || "").toLowerCase();
                 const href = (a.href || "").toLowerCase();
-                const nameParts = anime.toLowerCase().split(' ').filter(p => p.length > 3);
-                if(nameParts.length === 0) nameParts.push(anime.toLowerCase());
-
-                const matchesName = nameParts.every(part => txt.includes(part) || href.includes(part));
-                return matchesName && !href.includes('/category/') && !href.includes('/tag/') && !href.includes('?s=');
+                
+                // Keep it simple: does the title include the anime name?
+                return txt.includes(animeNameLower) && !href.includes('/category/') && !href.includes('/tag/') && !href.includes('?s=');
             });
+
             return match ? match.href : null;
         }, { anime: animeName });
 
@@ -58,7 +65,7 @@ const getTPXVideo = async (animeName, episodeNumber, season = 1) => {
 
         logger.info(`🎯 Main Post Found: ${targetPostUrl}`);
         await page.goto(targetPostUrl, { waitUntil: 'load', timeout: 60000 });
-        await page.waitForTimeout(4000); 
+        await page.waitForTimeout(3000); 
 
         // ==========================================
         // 2️⃣ DOM PARSER: FIND EPISODE -> FHD -> SERVER LINK
@@ -111,7 +118,7 @@ const getTPXVideo = async (animeName, episodeNumber, season = 1) => {
         // ==========================================
         logger.info(`🚀 Navigating to Redirector/Shortener...`);
         await page.goto(serverLinkUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-        await page.waitForTimeout(4000);
+        await page.waitForTimeout(3000);
 
         logger.info('🔍 Shortener (Skip Ad/GPLink/Cuty) dhoondh rahe hain...');
         const shortenerBtn = page.locator('text=/Skip Ad|GPLink|Cuty|Download/i').first();

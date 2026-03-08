@@ -1,7 +1,8 @@
 const { launchBrowser } = require('./common.scraper');
 const logger = require('../utils/logger');
 
-const getTPXVideo = async (animeName, episodeNumber, season = 1) => {
+// ✅ NAYA: tpxUrl parameter add kiya
+const getTPXVideo = async (animeName, episodeNumber, season = 1, tpxUrl = null) => {
     let browser = null;
     try {
         browser = await launchBrowser();
@@ -30,41 +31,14 @@ const getTPXVideo = async (animeName, episodeNumber, season = 1) => {
         page.on('response', sniffResponse);
 
         // ==========================================
-        // 1️⃣ SEARCH & FIND MAIN ANIME PAGE
+        // 1️⃣ GOTO DIRECT URL
         // ==========================================
-        const searchQuery = encodeURIComponent(animeName);
-        const searchUrl = `https://www.tpxsub.com/?s=${searchQuery}`;
-        logger.info(`🔍 Searching TPX for Main Post: ${animeName}`);
-        
-        await page.goto(searchUrl, { waitUntil: 'load', timeout: 60000 });
-        
-        // Wait till articles/posts are loaded on the search page
-        try {
-             await page.waitForSelector('h2 a, h3 a, .post-title a, article a', { timeout: 10000 });
-        } catch(e) {
-             logger.warn('Search results selector not found within timeout.');
+        if (!tpxUrl) {
+            throw new Error(`❌ Direct Test ke liye tpxUrl dena zaroori hai! (Abhi api se null aaya hai)`);
         }
-        
-        const targetPostUrl = await page.evaluate(({ anime }) => {
-            const links = Array.from(document.querySelectorAll('h2 a, h3 a, .post-title a, article a'));
-            const animeNameLower = anime.toLowerCase();
 
-            // Direct match - find any link where the text includes the anime name
-            const match = links.find(a => {
-                const txt = (a.innerText || "").toLowerCase();
-                const href = (a.href || "").toLowerCase();
-                
-                // Keep it simple: does the title include the anime name?
-                return txt.includes(animeNameLower) && !href.includes('/category/') && !href.includes('/tag/') && !href.includes('?s=');
-            });
-
-            return match ? match.href : null;
-        }, { anime: animeName });
-
-        if (!targetPostUrl) throw new Error(`❌ Search Failed: TPX par "${animeName}" ki main post nahi mili!`);
-
-        logger.info(`🎯 Main Post Found: ${targetPostUrl}`);
-        await page.goto(targetPostUrl, { waitUntil: 'load', timeout: 60000 });
+        logger.info(`🎯 Navigating directly to Post: ${tpxUrl}`);
+        await page.goto(tpxUrl, { waitUntil: 'load', timeout: 60000 });
         await page.waitForTimeout(3000); 
 
         // ==========================================
